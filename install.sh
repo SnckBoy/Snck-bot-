@@ -103,8 +103,20 @@ PY
 chmod 600 "$ENV_FILE"
 "$VENV/bin/python" -m py_compile "$APP_DIR/bot.py"
 
-if [[ "$(id -u)" -eq 0 && -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
-  cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
+SYSTEMD_READY=false
+if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
+  PRIV=""
+  if [[ "$(id -u)" -eq 0 ]]; then
+    PRIV=""
+  elif command -v sudo >/dev/null 2>&1 && sudo -v; then
+    PRIV="sudo"
+  else
+    warn "systemd is present but root/sudo access is unavailable; using background mode."
+  fi
+
+  if [[ "$(id -u)" -eq 0 || "$PRIV" == "sudo" ]]; then
+    SERVICE_TMP="$(mktemp)"
+    cat > "$SERVICE_TMP" <<EOF
 [Unit]
 Description=Snck Discord Bot
 After=network-online.target
@@ -123,21 +135,34 @@ NoNewPrivileges=true
 [Install]
 WantedBy=multi-user.target
 EOF
-  chown -R "$TARGET_USER:$TARGET_USER" "$APP_DIR"
-  systemctl daemon-reload
-  systemctl enable --now "$SERVICE_NAME"
-  ok "Snck Bot installed and started with systemd."
-  echo "Logs: journalctl -u ${SERVICE_NAME} -f"
-else
+    if [[ "$PRIV" == "sudo" ]]; then
+      sudo install -m 644 "$SERVICE_TMP" "/etc/systemd/system/${SERVICE_NAME}.service"
+      sudo chown -R "$TARGET_USER:$TARGET_USER" "$APP_DIR"
+      sudo systemctl daemon-reload
+      sudo systemctl enable --now "$SERVICE_NAME"
+    else
+      install -m 644 "$SERVICE_TMP" "/etc/systemd/system/${SERVICE_NAME}.service"
+      chown -R "$TARGET_USER:$TARGET_USER" "$APP_DIR"
+      systemctl daemon-reload
+      systemctl enable --now "$SERVICE_NAME"
+    fi
+    rm -f "$SERVICE_TMP"
+    SYSTEMD_READY=true
+    ok "Snck Bot installed and started with systemd."
+    echo "Logs: journalctl -u ${SERVICE_NAME} -f"
+  fi
+fi
+
+if [[ "$SYSTEMD_READY" != true ]]; then
   chown -R "$TARGET_USER:$TARGET_USER" "$APP_DIR" 2>/dev/null || true
   nohup "$VENV/bin/python" "$APP_DIR/bot.py" > "$APP_DIR/bot.log" 2>&1 &
   echo $! > "$APP_DIR/bot.pid"
   sleep 2
   if kill -0 "$(cat "$APP_DIR/bot.pid")" 2>/dev/null; then
     ok "Snck Bot started in background mode."
-    echo "Logs: tail -f ${APP_DIR}/bot.log"
+    echo "Logs: tail -f $APP_DIR/bot.log"
   else
-    warn "Snck Bot did not stay running. Check: ${APP_DIR}/bot.log"
+    warn "Snck Bot did not stay running. Check: $APP_DIR/bot.log"
   fi
 fi
 chmod 600 "$ENV_FILE"
