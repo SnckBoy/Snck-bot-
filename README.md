@@ -1,147 +1,399 @@
-# Snck Bot
+# 🤖 Snck Bot
 
-Snck Bot is a Discord-based VPS management bot for provisioning and managing Linux containers through a local LXC host or configured remote node. The bot stores management data in SQLite and loads runtime configuration from a protected `.env` file.
+**Snck Bot** is a Discord bot for managing VPS/LXC containers from Discord.
 
-> **Important:** Discord bot operation can run in GitHub Codespaces, but production VPS/LXC creation requires a properly configured VPS or node with the required privileges, LXC/LXD support, networking, storage, and kernel capabilities. A normal Codespace must not be treated as a production virtualization node.
+It is designed to make VPS management simple: install the bot, connect it to your Discord server, configure a node, and use the bot's commands to manage supported VPS/container tasks.
 
-## Features
+> **Important:** The Discord bot itself can run on Ubuntu, Debian, or GitHub Codespaces. Actual VPS/LXC creation needs a real, properly configured Linux node with the required virtualization privileges. A normal Codespace is **not** a production VPS node.
 
-Snck Bot includes Discord-based VPS creation and management, resource limits for RAM, CPU, and disk, operating-system selection, expiration tracking, sharing and administrative controls, port-forwarding support, SQLite persistence, local and remote node support, and automatic restart behavior when installed as a systemd service.
+## ✨ What can Snck Bot do?
 
-## Requirements
+- 🖥️ Manage VPS/LXC containers
+- 🚀 Create and manage supported VPS instances
+- ▶️ Start, stop, and inspect containers
+- 💾 Apply RAM, CPU, and disk limits
+- 🐧 Select supported operating systems
+- ⏰ Track VPS expiration
+- 👥 Share VPS access where supported
+- 🔌 Support port-forwarding information
+- 🌐 Work with local or configured remote nodes
+- 💿 Store management data in SQLite
+- 🔄 Automatically restart with systemd on supported Linux systems
+- ☁️ Run the Discord control bot in GitHub Codespaces/non-systemd environments
 
-You need a Discord application and bot token, Python 3.10 or newer, outbound network access, and a Discord server where the bot can be invited. For local VPS/LXC operations, the host must also provide LXC/LXD and the privileges required to create, start, stop, inspect, and delete containers. Remote nodes require the bot’s corresponding node-agent/API setup and valid network access.
+---
 
-The current Python dependencies are listed in [`requirements.txt`](requirements.txt): `discord.py`, `python-dotenv`, and `requests`.
+## 🚀 Quick Install
 
-## One-command installation
+### Ubuntu / Debian
 
-On Ubuntu or Debian, run the following command. The installer downloads the project files, installs operating-system prerequisites, creates an isolated virtual environment, installs Python dependencies, prompts for configuration, validates the source, and starts the bot.
+The easiest method is the one-command installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main/install.sh | bash
 ```
 
-If root privileges are required for package installation or systemd registration, use:
+If your system requires root privileges:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main/install.sh | sudo bash
 ```
 
-The application is installed under `~/snck-bot` for a normal user, or under the invoking user’s home directory when run through `sudo`. The installer creates `.venv`, `.env`, `bot.log` or a systemd journal, and the SQLite database at runtime.
+The installer will:
 
-## Manual Ubuntu/Debian installation
+1. Check/install required Ubuntu/Debian packages.
+2. Download the bot files.
+3. Create a Python virtual environment.
+4. Install Python dependencies.
+5. Ask for your Discord bot configuration.
+6. Create a protected `.env` file.
+7. Check that `bot.py` is valid Python.
+8. Start the bot automatically.
+9. Use systemd when available, or a background process when systemd is unavailable.
 
-To install from a clone instead of the one-command installer, use:
+### 📦 What will the installer ask?
 
-```bash
-git clone https://github.com/SnckBoy/Snck-bot-.git
-cd Snck-bot
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-cp .env.example .env
-chmod 600 .env
-$EDITOR .env
-python -m py_compile bot.py
-python bot.py
+You will be asked for:
+
+- **Discord Bot Token** — your bot's secret token.
+- **Main Admin Discord User ID** — your Discord user ID.
+- **VPS IP/hostname** — optional public IP/hostname used by the bot.
+- **Deploy Role ID** — optional Discord role allowed to use self-service deployment.
+- **Deploy RAM** — default: `16 GB`.
+- **Deploy CPU** — default: `3 cores`.
+- **Deploy Disk** — default: `80 GB`.
+- **Per-user VPS limit** — default: `1`.
+- **Global VPS slot limit** — default: `0` (unlimited).
+
+You can normally press **Enter** to use a displayed default value.
+
+---
+
+## 🔑 Discord Bot Setup
+
+Before installing, create a Discord application and bot in the Discord Developer Portal.
+
+Make sure the bot has the intents required by the source, including:
+
+- **Message Content Intent**
+- **Server Members Intent**
+
+Invite the bot to your Discord server with only the permissions it actually needs.
+
+### Finding Discord IDs
+
+If the installer asks for a user or role ID:
+
+1. Open Discord settings.
+2. Enable **Developer Mode**.
+3. Right-click the user or role.
+4. Select **Copy User ID** or **Copy Role ID**.
+5. Paste the numeric ID into the installer.
+
+---
+
+## 🖥️ VPS / LXC Node Setup
+
+There are two different parts to understand:
+
+### 1. Discord Bot
+
+The bot is the Discord control layer. It can run on a normal Linux VPS or in GitHub Codespaces.
+
+### 2. VPS/LXC Node
+
+The node is the machine that actually performs container/VPS operations.
+
+For local VPS/LXC operations, the node needs the appropriate:
+
+- Linux environment
+- LXC/LXD support required by the bot
+- Storage pool
+- Network/bridge configuration
+- CPU/RAM/disk resources
+- Container permissions
+- Firewall/network configuration
+- Privileges to create, start, stop, inspect, and delete containers
+
+For remote nodes, the corresponding node-agent/API must also be configured and reachable by the bot.
+
+> **Codespaces note:** Codespaces is useful for developing or running the Discord bot, but it should not be treated as a production virtualization node.
+
+---
+
+## 📁 Installation Location
+
+The installer normally creates:
+
+```text
+~/snck-bot/
+├── bot.py
+├── requirements.txt
+├── .env
+├── .env.example
+├── .venv/
+├── install.log
+├── bot.log          # non-systemd mode
+├── bot.pid          # non-systemd mode
+└── database files   # created by the bot when needed
 ```
 
-Do not place a real token in the repository or commit `.env`.
+The `.env` file contains your secret configuration and is protected with restrictive permissions.
 
-## Configuration
+**Never upload or commit `.env` to GitHub.**
 
-The installer asks for the core values below and writes them to `.env` without echoing the Discord token. Values not requested interactively can be adjusted in `.env` before starting the bot.
+---
 
-| Variable | Purpose | Example/default |
-|---|---|---|
-| `DISCORD_TOKEN` | Discord bot token; keep secret | Required |
-| `BOT_NAME` | Bot identity used by the bot | `Snck` |
-| `PREFIX` | Command prefix | `!` |
-| `MAIN_ADMIN_ID` | Discord user ID of the main administrator | Required |
-| `YOUR_SERVER_IP` | Public IP or hostname used for port-forwarding information | Optional |
-| `VPS_USER_ROLE_ID` | Existing Discord role ID for VPS users | `0` |
-| `DEFAULT_STORAGE_POOL` | Local LXC storage pool | `default` |
-| `DEPLOY_ROLE_ID` | Role allowed to use self-service `!deploy`; `0` disables it | `0` |
-| `DEPLOY_RAM` | RAM allocated to self-service deployments, in GB | `16` |
-| `DEPLOY_CPU` | CPU cores allocated to self-service deployments | `3` |
-| `DEPLOY_DISK` | Disk allocated to self-service deployments, in GB | `80` |
-| `VPS_DEPLOY_LIMIT` | Maximum self-service VPS count per user | `1` |
-| `DEPLOY_SLOT` | Global self-service VPS limit; `0` means unlimited | `0` |
-| `DEFAULT_VPS_EXPIRATION_DAYS` | Default VPS lifetime | `30` |
-| `EXPIRATION_WARNING_DAYS` | Warning period before expiration | `1` |
-| `BOT_VERSION` | Displayed bot version | `1.0` |
-| `BOT_DEVELOPER` | Displayed developer name | `Snck` |
-| `BOT_THUMBNAIL_URL` / `BOT_ICON_URL` | Optional branding image URLs | Empty |
+## ▶️ Managing Snck Bot
 
-Use numeric Discord IDs rather than names. In Discord, enable Developer Mode, right-click the relevant user or role, and select **Copy User ID** or **Copy Role ID**.
-
-## Discord Developer Portal setup
-
-In the Discord Developer Portal, open the bot’s application and enable the privileged intents required by the source: **Message Content Intent** and **Server Members Intent**. Invite the bot with the permissions required for its commands, including sending messages, embedding links, managing roles where applicable, and responding to interactions. Follow the principle of least privilege and avoid granting Administrator unless it is genuinely required by your deployment.
-
-## Starting and managing the bot
-
-For a manual installation, start the bot from the application directory:
-
-```bash
-./start.sh
-```
-
-The launcher expects `.venv` beside `bot.py`. On a systemd installation, use:
+### Check systemd status
 
 ```bash
 sudo systemctl status snck-discord-bot
+```
+
+### Restart
+
+```bash
 sudo systemctl restart snck-discord-bot
+```
+
+### Stop
+
+```bash
 sudo systemctl stop snck-discord-bot
+```
+
+### Start
+
+```bash
 sudo systemctl start snck-discord-bot
 ```
 
-View systemd logs with:
+### View live logs
 
 ```bash
 sudo journalctl -u snck-discord-bot -f
 ```
 
-In Codespaces or another non-systemd environment, the installer uses a safe background process. View its logs and status with:
+---
+
+## ☁️ GitHub Codespaces / Non-Systemd
+
+If systemd is unavailable, the installer starts Snck Bot as a background process.
+
+View the log:
 
 ```bash
 tail -f ~/snck-bot/bot.log
-kill "$(cat ~/snck-bot/bot.pid)"       # stop
-cd ~/snck-bot && ./start.sh             # start manually
 ```
 
-## Updating
+Stop the bot:
 
-Back up `.env` and any important database data before updating. Then fetch the latest source, reinstall dependencies, validate the source, and restart the service:
+```bash
+kill "$(cat ~/snck-bot/bot.pid)"
+```
+
+Start it manually:
 
 ```bash
 cd ~/snck-bot
-cp .env ../snck-bot.env.backup
+./start.sh
+```
+
+Remember that a Codespace may stop or reset, so it is not a replacement for a persistent production VPS node.
+
+---
+
+## ⚙️ Configuration
+
+The most important settings are:
+
+| Setting | Meaning | Default |
+|---|---|---:|
+| `DISCORD_TOKEN` | Discord bot token | Required |
+| `MAIN_ADMIN_ID` | Main administrator's Discord ID | Required |
+| `YOUR_SERVER_IP` | Public server IP/hostname | Optional |
+| `BOT_NAME` | Bot name | `Snck` |
+| `PREFIX` | Command prefix | `!` |
+| `VPS_USER_ROLE_ID` | Existing VPS-user role ID | `0` |
+| `DEFAULT_STORAGE_POOL` | LXC storage pool | `default` |
+| `DEPLOY_ROLE_ID` | Role allowed to self-deploy | `0` |
+| `DEPLOY_RAM` | Self-deploy RAM in GB | `16` |
+| `DEPLOY_CPU` | Self-deploy CPU cores | `3` |
+| `DEPLOY_DISK` | Self-deploy disk in GB | `80` |
+| `VPS_DEPLOY_LIMIT` | VPS limit per user | `1` |
+| `DEPLOY_SLOT` | Global VPS limit | `0` = unlimited |
+| `DEFAULT_VPS_EXPIRATION_DAYS` | Default VPS lifetime | `30` |
+| `EXPIRATION_WARNING_DAYS` | Expiration warning period | `1` |
+
+---
+
+## 🛠️ Troubleshooting
+
+### Installer fails
+
+Check the installer log:
+
+```bash
+cat ~/snck-bot/install.log
+```
+
+### Bot starts and then stops
+
+Systemd:
+
+```bash
+sudo journalctl -u snck-discord-bot -n 100 --no-pager
+```
+
+Non-systemd:
+
+```bash
+cat ~/snck-bot/bot.log
+```
+
+### Bot is online but commands do not work
+
+Check:
+
+- The Discord bot token is correct.
+- Message Content Intent is enabled.
+- Server Members Intent is enabled if required.
+- The bot is actually in your Discord server.
+- The bot has the permissions needed for the command.
+- `MAIN_ADMIN_ID` contains the correct numeric Discord user ID.
+
+### VPS creation does not work
+
+Check the node rather than only the Discord bot. Make sure the node has the required LXC/LXD installation, storage, networking, permissions, and resources.
+
+---
+
+## 🔄 Updating
+
+Before updating, back up your `.env` and any important database data.
+
+For a manual installation:
+
+```bash
+cd ~/snck-bot
 curl -fsSL https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main/bot.py -o bot.py
 curl -fsSL https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main/requirements.txt -o requirements.txt
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m py_compile bot.py
-sudo systemctl restart snck-discord-bot 2>/dev/null || ./start.sh
 ```
 
-If you update from Git, use `git pull` instead of downloading individual files and review changes before restarting.
+Then restart the bot:
 
-## VPS/LXC node requirements
+```bash
+sudo systemctl restart snck-discord-bot
+```
 
-The bot’s VPS features execute local LXC commands or call configured remote nodes. A production node must therefore have the necessary LXC/LXD packages, storage pool, bridge/network configuration, container nesting and privilege settings, firewall rules, sufficient RAM/CPU/disk, and permission to manage containers. Remote-node configuration additionally requires the node URL, API key, reachable ports, and the separate node-agent/API component expected by the bot.
+If systemd is unavailable, use `./start.sh` after stopping the previous process.
 
-Codespaces is suitable for developing or running the Discord control plane when systemd is unavailable. It normally does not provide the privileged virtualization environment, stable public networking, or persistent infrastructure required for production LXC provisioning.
+---
 
-## Security
+## 🔐 Security
 
-Never commit `.env`, Discord tokens, passwords, API keys, database files, logs, or process IDs. The repository’s `.gitignore` excludes these runtime artifacts, and the installer sets `.env` to mode `600`. If a token is ever exposed, immediately regenerate it in the Discord Developer Portal. Do not paste tokens into issues, chat logs, screenshots, or public documentation.
+**Keep your secrets private.**
 
-## Troubleshooting
+Never commit or publicly share:
 
-If installation fails, inspect `~/snck-bot/install.log`. If the bot starts and then exits, inspect `bot.log` or the systemd journal. A missing token, disabled Discord intents, invalid numeric Discord IDs, unavailable LXC commands, insufficient node privileges, or unreachable remote-node configuration are common causes.
+- Discord bot tokens
+- Passwords
+- API keys
+- `.env`
+- Database files containing sensitive data
+- Private logs containing credentials
 
-## License
+If your Discord bot token is exposed, regenerate it immediately in the Discord Developer Portal.
 
-No license has been published in this repository yet. Add an explicit license before redistributing the project.
+---
+
+## 📋 Requirements
+
+### Basic bot requirements
+
+- Ubuntu or Debian recommended for the installer
+- Python **3.10+**
+- Internet access
+- Discord application/bot
+- A Discord server where the bot can be invited
+
+### VPS/LXC requirements
+
+Additional virtualization requirements are needed for actual VPS/container management. The exact requirements depend on the node setup and the LXC/LXD functionality being used.
+
+Python dependencies are defined in:
+
+```text
+requirements.txt
+```
+
+Current core dependencies include:
+
+- `discord.py`
+- `python-dotenv`
+- `requests`
+
+---
+
+## 🧑‍💻 Development
+
+Clone the repository:
+
+```bash
+git clone https://github.com/SnckBoy/Snck-bot-.git
+cd Snck-bot-
+```
+
+Create a virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Create your local configuration:
+
+```bash
+cp .env.example .env
+chmod 600 .env
+```
+
+Then configure `.env` and run:
+
+```bash
+python bot.py
+```
+
+---
+
+## 📌 Important Notes
+
+- Snck Bot is a Discord management/control bot; it does not magically turn a normal Codespace into a VPS virtualization host.
+- Actual container/VPS provisioning requires a suitable privileged node.
+- Use only infrastructure and accounts you are authorized to manage.
+- Always protect your Discord token and other credentials.
+
+---
+
+## 📄 License
+
+No license is currently published for this repository. Add an explicit license before redistributing Snck Bot.
+
+---
+
+## 🔗 Repository
+
+**Snck Bot:**
+
+https://github.com/SnckBoy/Snck-bot-
