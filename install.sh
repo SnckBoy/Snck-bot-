@@ -5,36 +5,43 @@ APP_NAME="Snck Bot"
 SERVICE_NAME="snck-discord-bot"
 REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
 
-# Keep the installer stdin separate from the curl pipe. A downloaded temporary
-# copy is preferred by the README, but this also works with curl | bash when a
-# real terminal is available.
+# IMPORTANT: when executed as `curl ... | bash`, fd 0 belongs to the script
+# itself. Never replace fd 0, because Bash still needs it to read the script.
+# fd 3 is the user's interactive terminal.
 if [[ -r /dev/tty ]]; then
   exec 3</dev/tty
 else
-  echo "ERROR: Snck Bot needs an interactive terminal for the installer menu." >&2
-  echo "Run it from SSH/console with: curl -fsSL ${REPO_RAW}/install.sh -o /tmp/snck-install.sh && bash /tmp/snck-install.sh" >&2
+  echo "ERROR: An interactive terminal is required for the Snck Bot menu." >&2
+  echo "Use an SSH/console session with a real terminal." >&2
   exit 1
 fi
-
-# Resolve the real user even when the installer is run through `sudo bash`.
-if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
-  TARGET_USER="$SUDO_USER"
-else
-  TARGET_USER="${USER:-$(id -un)}"
-fi
-
-TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6 || true)"
-TARGET_HOME="${TARGET_HOME:-${HOME:-/root}}"
-APP_DIR="${TARGET_HOME}/snck-bot"
-VENV="${APP_DIR}/.venv"
-ENV_FILE="${APP_DIR}/.env"
-LOG_FILE="${APP_DIR}/install.log"
 
 cyan='\033[0;36m'; green='\033[0;32m'; yellow='\033[1;33m'; red='\033[0;31m'; reset='\033[0m'
 info(){ echo -e "${cyan}[Snck]${reset} $*"; }
 ok(){ echo -e "${green}[OK]${reset} $*"; }
 warn(){ echo -e "${yellow}[WARN]${reset} $*"; }
 die(){ echo -e "${red}ERROR:${reset} $*" >&2; [[ -n "${LOG_FILE:-}" ]] && echo "Installer log: ${LOG_FILE}" >&2; exit 1; }
+
+# Keep all potentially slow NSS/package/filesystem work OUTSIDE the menu path.
+resolve_paths() {
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    TARGET_USER="$SUDO_USER"
+  else
+    TARGET_USER="${USER:-$(id -un)}"
+  fi
+
+  # Avoid a potentially blocking NSS lookup. passwd(1) is enough for normal
+  # Ubuntu/Debian accounts and has a quick fallback to HOME.
+  TARGET_HOME=""
+  if command -v getent >/dev/null 2>&1; then
+    TARGET_HOME="$(timeout 3 getent passwd "$TARGET_USER" 2>/dev/null | cut -d: -f6 || true)"
+  fi
+  TARGET_HOME="${TARGET_HOME:-${HOME:-/root}}"
+  APP_DIR="${TARGET_HOME}/snck-bot"
+  VENV="${APP_DIR}/.venv"
+  ENV_FILE="${APP_DIR}/.env"
+  LOG_FILE="${APP_DIR}/install.log"
+}
 
 run_priv() {
   if [[ "$(id -u)" -eq 0 ]]; then
@@ -46,16 +53,14 @@ run_priv() {
   fi
 }
 
-read_menu() {
+read_terminal() {
   local __var="$1"
-  local __value
-  IFS= read -r __value <&3
+  local __value=""
+  IFS= read -r __value <&3 || true
   printf -v "$__var" '%s' "$__value"
 }
 
 show_banner() {
-  # Do not clear the terminal: some VPS/web terminals render a cleared screen
-  # as a blank installer. Always leave the menu visible.
   echo
   echo -e "${cyan}╔══════════════════════════════════════╗${reset}"
   echo -e "${cyan}║          🚀 SNCK BOT INSTALLER       ║${reset}"
@@ -73,7 +78,7 @@ show_menu() {
   echo "  [0] ❌ Exit"
   echo
   printf "Select an option [1-4, 0]: "
-  read_menu choice
+  read_terminal choice
   echo
 }
 
@@ -115,9 +120,13 @@ download_files() {
 
   info "Downloading Snck Bot files..."
   for file in bot.py requirements.txt .env.example launcher.py start.sh; do
+    local tmp
     tmp="$(mktemp)"
-    curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
-      "$REPO_RAW/$file" -o "$tmp" || { rm -f "$tmp"; die "Failed to download $file from GitHub."; }
+    if ! curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
+      "$REPO_RAW/$file" -o "$tmp"; then
+      rm -f "$tmp"
+      die "Failed to download $file from GitHub."
+    fi
     [[ -s "$tmp" ]] || { rm -f "$tmp"; die "Downloaded $file is empty."; }
     install -m 644 "$tmp" "$APP_DIR/$file"
     rm -f "$tmp"
@@ -128,7 +137,7 @@ download_files() {
 create_service() {
   SYSTEMD_READY=false
   if [[ ! -d /run/systemd/system ]] || ! command -v systemctl >/dev/null 2>&1; then
-    return
+    return 0
   fi
 
   local service_tmp
@@ -164,8 +173,10 @@ EOF_SERVICE
 }
 
 install_bot() {
+  resolve_paths
   echo "========== Snck Bot Installation =========="
   echo
+
   prepare_packages
   prepare_lxd
   download_files
@@ -180,7 +191,7 @@ install_bot() {
   echo "Only the Discord bot token is required."
   echo
   printf "Discord Bot Token: "
-  IFS= read -r -s DISCORD_TOKEN <&3
+  IFS= read -r -s DISCORD_TOKEN <&3 || true
   echo
   [[ -n "$DISCORD_TOKEN" ]] || die "Discord token is required."
 
@@ -239,6 +250,7 @@ EOF_ENV
 }
 
 update_bot() {
+  resolve_paths
   [[ -d "$APP_DIR" ]] || die "Snck Bot is not installed at $APP_DIR."
   [[ -f "$ENV_FILE" ]] || die "Bot configuration is missing: $ENV_FILE"
 
@@ -251,6 +263,7 @@ update_bot() {
   if [[ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]]; then
     create_service
   elif [[ -f "$APP_DIR/bot.pid" ]]; then
+    local old_pid
     old_pid="$(cat "$APP_DIR/bot.pid" 2>/dev/null || true)"
     if [[ "$old_pid" =~ ^[0-9]+$ ]]; then kill "$old_pid" 2>/dev/null || true; fi
     nohup "$VENV/bin/python" "$APP_DIR/launcher.py" >> "$APP_DIR/bot.log" 2>&1 &
@@ -260,18 +273,20 @@ update_bot() {
 }
 
 uninstall_bot() {
+  resolve_paths
   echo "This will remove Snck Bot and its system service from this VPS."
   printf "Type YES to continue: "
-  IFS= read -r confirm <&3
-  [[ "$confirm" == "YES" ]] || { echo "Cancelled."; return; }
+  read_terminal confirm
+  [[ "$confirm" == "YES" ]] || { echo "Cancelled."; return 0; }
 
-  if command -v systemctl >/dev/null 2>&1 && run_priv systemctl list-unit-files "${SERVICE_NAME}.service" >/dev/null 2>&1; then
+  if command -v systemctl >/dev/null 2>&1; then
     run_priv systemctl disable --now "$SERVICE_NAME" 2>/dev/null || true
     run_priv rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
-    run_priv systemctl daemon-reload
+    run_priv systemctl daemon-reload 2>/dev/null || true
   fi
 
   if [[ -f "$APP_DIR/bot.pid" ]]; then
+    local old_pid
     old_pid="$(cat "$APP_DIR/bot.pid" 2>/dev/null || true)"
     if [[ "$old_pid" =~ ^[0-9]+$ ]]; then kill "$old_pid" 2>/dev/null || true; fi
   fi
@@ -281,10 +296,12 @@ uninstall_bot() {
 }
 
 status_bot() {
+  resolve_paths
   show_banner
   if [[ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]] && command -v systemctl >/dev/null 2>&1; then
     run_priv systemctl --no-pager status "$SERVICE_NAME" || true
   elif [[ -f "$APP_DIR/bot.pid" ]]; then
+    local pid
     pid="$(cat "$APP_DIR/bot.pid" 2>/dev/null || true)"
     if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
       ok "Snck Bot is running (PID $pid)."
@@ -297,16 +314,16 @@ status_bot() {
 }
 
 main() {
-  # Nothing below this point runs until a menu option is selected.
+  # Nothing slow runs before this menu. This is critical for `curl | bash`.
   while true; do
     show_menu
     case "${choice:-}" in
       1) install_bot; break ;;
       2) update_bot; break ;;
       3) uninstall_bot; break ;;
-      4) status_bot; printf '\nPress Enter to return to menu... '; IFS= read -r pause <&3 ;;
+      4) status_bot; printf '\nPress Enter to return to menu... '; read_terminal pause ;;
       0) echo "Goodbye."; exit 0 ;;
-      *) warn "Invalid option. Please choose 1, 2, 3, 4, or 0."; sleep 1 ;;
+      *) warn "Invalid option. Please choose 1, 2, 3, 4, or 0." ;;
     esac
   done
 }
