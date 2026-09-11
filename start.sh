@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
-exec "$APP_DIR/.venv/bin/python" "$APP_DIR/bot.py"
+exec "$APP_DIR/.venv/bin/python" "$APP_DIR/launcher.py"
