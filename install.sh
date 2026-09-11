@@ -5,16 +5,15 @@ APP_NAME="Snck Bot"
 SERVICE_NAME="snck-discord-bot"
 REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
 
-# curl | bash provides the script on stdin. Move stdin to the interactive
-# terminal before doing ANY menu/configuration work so the installer can never
-# accidentally consume the pipe and fall through into an automatic install.
-if [[ ! -t 0 ]]; then
-  if [[ -r /dev/tty ]]; then
-    exec </dev/tty
-  else
-    echo "ERROR: An interactive terminal (/dev/tty) is required for the Snck Bot installer menu." >&2
-    exit 1
-  fi
+# Keep the installer stdin separate from the curl pipe. A downloaded temporary
+# copy is preferred by the README, but this also works with curl | bash when a
+# real terminal is available.
+if [[ -r /dev/tty ]]; then
+  exec 3</dev/tty
+else
+  echo "ERROR: Snck Bot needs an interactive terminal for the installer menu." >&2
+  echo "Run it from SSH/console with: curl -fsSL ${REPO_RAW}/install.sh -o /tmp/snck-install.sh && bash /tmp/snck-install.sh" >&2
+  exit 1
 fi
 
 # Resolve the real user even when the installer is run through `sudo bash`.
@@ -47,8 +46,17 @@ run_priv() {
   fi
 }
 
+read_menu() {
+  local __var="$1"
+  local __value
+  IFS= read -r __value <&3
+  printf -v "$__var" '%s' "$__value"
+}
+
 show_banner() {
-  clear 2>/dev/null || true
+  # Do not clear the terminal: some VPS/web terminals render a cleared screen
+  # as a blank installer. Always leave the menu visible.
+  echo
   echo -e "${cyan}╔══════════════════════════════════════╗${reset}"
   echo -e "${cyan}║          🚀 SNCK BOT INSTALLER       ║${reset}"
   echo -e "${cyan}║       Premium Discord VPS Bot        ║${reset}"
@@ -65,7 +73,7 @@ show_menu() {
   echo "  [0] ❌ Exit"
   echo
   printf "Select an option [1-4, 0]: "
-  read -r choice
+  read_menu choice
   echo
 }
 
@@ -172,7 +180,7 @@ install_bot() {
   echo "Only the Discord bot token is required."
   echo
   printf "Discord Bot Token: "
-  read -r -s DISCORD_TOKEN
+  IFS= read -r -s DISCORD_TOKEN <&3
   echo
   [[ -n "$DISCORD_TOKEN" ]] || die "Discord token is required."
 
@@ -254,7 +262,7 @@ update_bot() {
 uninstall_bot() {
   echo "This will remove Snck Bot and its system service from this VPS."
   printf "Type YES to continue: "
-  read -r confirm
+  IFS= read -r confirm <&3
   [[ "$confirm" == "YES" ]] || { echo "Cancelled."; return; }
 
   if command -v systemctl >/dev/null 2>&1 && run_priv systemctl list-unit-files "${SERVICE_NAME}.service" >/dev/null 2>&1; then
@@ -289,15 +297,14 @@ status_bot() {
 }
 
 main() {
-  # Do not create directories, install packages, download files, or start the
-  # bot until the user explicitly chooses option 1 or 2 from the menu.
+  # Nothing below this point runs until a menu option is selected.
   while true; do
     show_menu
     case "${choice:-}" in
       1) install_bot; break ;;
       2) update_bot; break ;;
       3) uninstall_bot; break ;;
-      4) status_bot; printf '\nPress Enter to return to menu... '; read -r pause ;;
+      4) status_bot; printf '\nPress Enter to return to menu... '; IFS= read -r pause <&3 ;;
       0) echo "Goodbye."; exit 0 ;;
       *) warn "Invalid option. Please choose 1, 2, 3, 4, or 0."; sleep 1 ;;
     esac
