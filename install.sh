@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_NAME="Snck Bot"
+APP_NAME="Snck Discord VPS Deploy Bot"
 SERVICE_NAME="snck-discord-bot"
 REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
 
@@ -11,16 +11,16 @@ REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
 if [[ -r /dev/tty ]]; then
   exec 3</dev/tty
 else
-  echo "ERROR: An interactive terminal is required for the Snck Bot menu." >&2
+  echo "ERROR: An interactive terminal is required for the Snck Discord VPS Deploy Bot menu." >&2
   echo "Use an SSH/console session with a real terminal." >&2
   exit 1
 fi
 
-cyan='\033[0;36m'; green='\033[0;32m'; yellow='\033[1;33m'; red='\033[0;31m'; reset='\033[0m'
-info(){ echo -e "${cyan}[Snck]${reset} $*"; }
-ok(){ echo -e "${green}[OK]${reset} $*"; }
-warn(){ echo -e "${yellow}[WARN]${reset} $*"; }
-die(){ echo -e "${red}ERROR:${reset} $*" >&2; [[ -n "${LOG_FILE:-}" ]] && echo "Installer log: ${LOG_FILE}" >&2; exit 1; }
+cyan='\033[1;36m'; blue='\033[1;34m'; magenta='\033[1;35m'; green='\033[1;32m'; yellow='\033[1;33m'; red='\033[1;31m'; white='\033[1;37m'; dim='\033[2m'; reset='\033[0m'
+info(){ echo -e "${cyan}[SNCK]${reset} $*"; }
+ok(){ echo -e "${green}[  OK ]${reset} $*"; }
+warn(){ echo -e "${yellow}[ WARN ]${reset} $*"; }
+die(){ echo -e "${red}[ ERROR ]${reset} $*" >&2; [[ -n "${LOG_FILE:-}" ]] && echo "Installer log: ${LOG_FILE}" >&2; exit 1; }
 
 # Keep all potentially slow NSS/package/filesystem work OUTSIDE the menu path.
 resolve_paths() {
@@ -62,22 +62,26 @@ read_terminal() {
 
 show_banner() {
   echo
-  echo -e "${cyan}╔══════════════════════════════════════╗${reset}"
-  echo -e "${cyan}║          🚀 SNCK BOT INSTALLER       ║${reset}"
-  echo -e "${cyan}║       Premium Discord VPS Bot        ║${reset}"
-  echo -e "${cyan}╚══════════════════════════════════════╝${reset}"
+  echo -e "${cyan}╔══════════════════════════════════════════════════╗${reset}"
+  echo -e "${cyan}║${reset}  ${magenta}✦${reset} ${white}SNCK DISCORD VPS DEPLOY BOT${reset}                 ${cyan}║${reset}"
+  echo -e "${cyan}║${reset}  ${dim}Premium VPS deployment & management installer${reset} ${cyan}║${reset}"
+  echo -e "${cyan}╠══════════════════════════════════════════════════╣${reset}"
+  echo -e "${cyan}║${reset}  ${green}●${reset} ${white}Production Installer${reset}   ${blue}◆${reset} ${white}Ubuntu / Debian${reset}       ${cyan}║${reset}"
+  echo -e "${cyan}╚══════════════════════════════════════════════════╝${reset}"
   echo
 }
 
 show_menu() {
   show_banner
-  echo "  [1] 🚀 Install Snck Bot"
-  echo "  [2] 🔄 Update Snck Bot"
-  echo "  [3] 🗑️  Uninstall Snck Bot"
-  echo "  [4] 📊 Check Bot Status"
-  echo "  [0] ❌ Exit"
+  echo -e "  ${magenta}┌─${reset} ${white}MAIN MENU${reset} ${magenta}────────────────────────────────┐${reset}"
+  echo -e "  ${magenta}│${reset}  ${green}[1]${reset} 🚀  ${white}Install Snck Discord VPS Deploy Bot${reset}  ${magenta}│${reset}"
+  echo -e "  ${magenta}│${reset}  ${blue}[2]${reset} 🔄  ${white}Update Bot${reset}                         ${magenta}│${reset}"
+  echo -e "  ${magenta}│${reset}  ${red}[3]${reset} 🗑️   ${white}Uninstall Bot${reset}                     ${magenta}│${reset}"
+  echo -e "  ${magenta}│${reset}  ${cyan}[4]${reset} 📊  ${white}Check Bot Status${reset}                  ${magenta}│${reset}"
+  echo -e "  ${magenta}│${reset}  ${yellow}[0]${reset} ❌  ${white}Exit${reset}                              ${magenta}│${reset}"
+  echo -e "  ${magenta}└───────────────────────────────────────────────┘${reset}"
   echo
-  printf "Select an option [1-4, 0]: "
+  printf "  ${cyan}➜${reset} ${white}Select an option${reset} ${dim}[1-4, 0]${reset}: "
   read_terminal choice
   echo
 }
@@ -174,7 +178,9 @@ EOF_SERVICE
 
 install_bot() {
   resolve_paths
-  echo "========== Snck Bot Installation =========="
+  echo -e "${cyan}╔══════════════════════════════════════════════════╗${reset}"
+  echo -e "${cyan}║${reset}  ${magenta}🚀 INSTALLING SNCK DISCORD VPS DEPLOY BOT${reset}   ${cyan}║${reset}"
+  echo -e "${cyan}╚══════════════════════════════════════════════════╝${reset}"
   echo
 
   prepare_packages
@@ -187,10 +193,10 @@ install_bot() {
   "$VENV/bin/pip" install --upgrade -r "$APP_DIR/requirements.txt"
 
   echo
-  echo "========== Discord Bot Setup =========="
-  echo "Only the Discord bot token is required."
+  echo -e "${cyan}========== ${white}Discord Bot Setup${cyan} ==========${reset}"
+  echo -e "${dim}Only the Discord bot token is required.${reset}"
   echo
-  printf "Discord Bot Token: "
+  printf "${cyan}🔐 Discord Bot Token:${reset} "
   IFS= read -r -s DISCORD_TOKEN <&3 || true
   echo
   [[ -n "$DISCORD_TOKEN" ]] || die "Discord token is required."
