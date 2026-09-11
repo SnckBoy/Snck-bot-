@@ -5,6 +5,18 @@ APP_NAME="Snck Bot"
 SERVICE_NAME="snck-discord-bot"
 REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
 
+# curl | bash provides the script on stdin. Move stdin to the interactive
+# terminal before doing ANY menu/configuration work so the installer can never
+# accidentally consume the pipe and fall through into an automatic install.
+if [[ ! -t 0 ]]; then
+  if [[ -r /dev/tty ]]; then
+    exec </dev/tty
+  else
+    echo "ERROR: An interactive terminal (/dev/tty) is required for the Snck Bot installer menu." >&2
+    exit 1
+  fi
+fi
+
 # Resolve the real user even when the installer is run through `sudo bash`.
 if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
   TARGET_USER="$SUDO_USER"
@@ -35,13 +47,6 @@ run_priv() {
   fi
 }
 
-# IMPORTANT: curl | bash is non-interactive on stdin, so all menu/token input
-# is explicitly read from /dev/tty. This prevents the installer from skipping
-# the menu or consuming its own script stream.
-read_tty() {
-  IFS= read -r "$@" </dev/tty
-}
-
 show_banner() {
   clear 2>/dev/null || true
   echo -e "${cyan}╔══════════════════════════════════════╗${reset}"
@@ -60,7 +65,7 @@ show_menu() {
   echo "  [0] ❌ Exit"
   echo
   printf "Select an option [1-4, 0]: "
-  read_tty choice
+  read -r choice
   echo
 }
 
@@ -167,7 +172,7 @@ install_bot() {
   echo "Only the Discord bot token is required."
   echo
   printf "Discord Bot Token: "
-  read_tty -s DISCORD_TOKEN
+  read -r -s DISCORD_TOKEN
   echo
   [[ -n "$DISCORD_TOKEN" ]] || die "Discord token is required."
 
@@ -249,7 +254,7 @@ update_bot() {
 uninstall_bot() {
   echo "This will remove Snck Bot and its system service from this VPS."
   printf "Type YES to continue: "
-  read_tty confirm
+  read -r confirm
   [[ "$confirm" == "YES" ]] || { echo "Cancelled."; return; }
 
   if command -v systemctl >/dev/null 2>&1 && run_priv systemctl list-unit-files "${SERVICE_NAME}.service" >/dev/null 2>&1; then
@@ -284,18 +289,15 @@ status_bot() {
 }
 
 main() {
-  mkdir -p "$APP_DIR"
-  touch "$LOG_FILE" 2>/dev/null || true
-  exec > >(tee -a "$LOG_FILE") 2>&1
-  trap 'die "Operation failed near line $LINENO."' ERR
-
+  # Do not create directories, install packages, download files, or start the
+  # bot until the user explicitly chooses option 1 or 2 from the menu.
   while true; do
     show_menu
     case "${choice:-}" in
       1) install_bot; break ;;
       2) update_bot; break ;;
       3) uninstall_bot; break ;;
-      4) status_bot; printf '\nPress Enter to return to menu... '; read_tty pause ;;
+      4) status_bot; printf '\nPress Enter to return to menu... '; read -r pause ;;
       0) echo "Goodbye."; exit 0 ;;
       *) warn "Invalid option. Please choose 1, 2, 3, 4, or 0."; sleep 1 ;;
     esac
