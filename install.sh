@@ -16,7 +16,8 @@ else
   exit 1
 fi
 
-cyan='\033[1;36m'; blue='\033[1;34m'; magenta='\033[1;35m'; green='\033[1;32m'; yellow='\033[1;33m'; red='\033[1;31m'; white='\033[1;37m'; dim='\033[2m'; reset='\033[0m'
+# Premium terminal palette. No emojis are used so the menu renders consistently.
+purple='\033[1;35m'; cyan='\033[1;36m'; blue='\033[1;34m'; green='\033[1;32m'; yellow='\033[1;33m'; red='\033[1;31m'; white='\033[1;37m'; gray='\033[0;37m'; dim='\033[2m'; reset='\033[0m'
 info(){ echo -e "${cyan}[SNCK]${reset} $*"; }
 ok(){ echo -e "${green}[  OK ]${reset} $*"; }
 warn(){ echo -e "${yellow}[ WARN ]${reset} $*"; }
@@ -29,9 +30,6 @@ resolve_paths() {
   else
     TARGET_USER="${USER:-$(id -un)}"
   fi
-
-  # Avoid a potentially blocking NSS lookup. passwd(1) is enough for normal
-  # Ubuntu/Debian accounts and has a quick fallback to HOME.
   TARGET_HOME=""
   if command -v getent >/dev/null 2>&1; then
     TARGET_HOME="$(timeout 3 getent passwd "$TARGET_USER" 2>/dev/null | cut -d: -f6 || true)"
@@ -62,26 +60,28 @@ read_terminal() {
 
 show_banner() {
   echo
-  echo -e "${cyan}╔══════════════════════════════════════════════════╗${reset}"
-  echo -e "${cyan}║${reset}  ${magenta}✦${reset} ${white}SNCK DISCORD VPS DEPLOY BOT${reset}                 ${cyan}║${reset}"
-  echo -e "${cyan}║${reset}  ${dim}Premium VPS deployment & management installer${reset} ${cyan}║${reset}"
-  echo -e "${cyan}╠══════════════════════════════════════════════════╣${reset}"
-  echo -e "${cyan}║${reset}  ${green}●${reset} ${white}Production Installer${reset}   ${blue}◆${reset} ${white}Ubuntu / Debian${reset}       ${cyan}║${reset}"
-  echo -e "${cyan}╚══════════════════════════════════════════════════╝${reset}"
+  echo -e "${purple}╔══════════════════════════════════════════════════╗${reset}"
+  echo -e "${purple}║${reset}                                                  ${purple}║${reset}"
+  echo -e "${purple}║${reset}  ${cyan}SNCK${reset} ${white}DISCORD VPS DEPLOY BOT${reset}                  ${purple}║${reset}"
+  echo -e "${purple}║${reset}  ${gray}Premium VPS deployment and management installer${reset} ${purple}║${reset}"
+  echo -e "${purple}║${reset}                                                  ${purple}║${reset}"
+  echo -e "${purple}╠══════════════════════════════════════════════════╣${reset}"
+  echo -e "${purple}║${reset}  ${green}SYSTEM${reset} ${gray}|${reset} ${blue}PRODUCTION${reset} ${gray}|${reset} ${cyan}UBUNTU / DEBIAN${reset}        ${purple}║${reset}"
+  echo -e "${purple}╚══════════════════════════════════════════════════╝${reset}"
   echo
 }
 
 show_menu() {
   show_banner
-  echo -e "  ${magenta}┌─${reset} ${white}MAIN MENU${reset} ${magenta}────────────────────────────────┐${reset}"
-  echo -e "  ${magenta}│${reset}  ${green}[1]${reset} 🚀  ${white}Install Snck Discord VPS Deploy Bot${reset}  ${magenta}│${reset}"
-  echo -e "  ${magenta}│${reset}  ${blue}[2]${reset} 🔄  ${white}Update Bot${reset}                         ${magenta}│${reset}"
-  echo -e "  ${magenta}│${reset}  ${red}[3]${reset} 🗑️   ${white}Uninstall Bot${reset}                     ${magenta}│${reset}"
-  echo -e "  ${magenta}│${reset}  ${cyan}[4]${reset} 📊  ${white}Check Bot Status${reset}                  ${magenta}│${reset}"
-  echo -e "  ${magenta}│${reset}  ${yellow}[0]${reset} ❌  ${white}Exit${reset}                              ${magenta}│${reset}"
-  echo -e "  ${magenta}└───────────────────────────────────────────────┘${reset}"
+  echo -e "  ${purple}┌─${reset} ${white}MAIN MENU${reset} ${purple}───────────────────────────────┐${reset}"
+  echo -e "  ${purple}│${reset}  ${green}[1]${reset}  ${white}INSTALL${reset}      ${gray}Install Snck Discord VPS Deploy Bot${reset}  ${purple}│${reset}"
+  echo -e "  ${purple}│${reset}  ${blue}[2]${reset}  ${white}UPDATE${reset}       ${gray}Update bot files${reset}                   ${purple}│${reset}"
+  echo -e "  ${purple}│${reset}  ${red}[3]${reset}  ${white}UNINSTALL${reset}    ${gray}Remove bot and service${reset}            ${purple}│${reset}"
+  echo -e "  ${purple}│${reset}  ${cyan}[4]${reset}  ${white}STATUS${reset}       ${gray}Check bot service status${reset}         ${purple}│${reset}"
+  echo -e "  ${purple}│${reset}  ${yellow}[0]${reset}  ${white}EXIT${reset}         ${gray}Close installer${reset}                 ${purple}│${reset}"
+  echo -e "  ${purple}└────────────────────────────────────────────────┘${reset}"
   echo
-  printf "  ${cyan}➜${reset} ${white}Select an option${reset} ${dim}[1-4, 0]${reset}: "
+  printf "  ${cyan}SELECT${reset} ${white}option${reset} ${dim}[1-4, 0]${reset}: "
   read_terminal choice
   echo
 }
@@ -121,7 +121,6 @@ download_files() {
   if [[ "$(id -u)" -eq 0 ]]; then
     chown "$TARGET_USER:$TARGET_USER" "$APP_DIR" "$LOG_FILE" 2>/dev/null || true
   fi
-
   info "Downloading Snck Bot files..."
   for file in bot.py requirements.txt .env.example launcher.py start.sh; do
     local tmp
@@ -143,7 +142,6 @@ create_service() {
   if [[ ! -d /run/systemd/system ]] || ! command -v systemctl >/dev/null 2>&1; then
     return 0
   fi
-
   local service_tmp
   service_tmp="$(mktemp)"
   cat > "$service_tmp" <<EOF_SERVICE
@@ -166,7 +164,6 @@ TimeoutStopSec=30
 [Install]
 WantedBy=multi-user.target
 EOF_SERVICE
-
   run_priv install -m 644 "$service_tmp" "/etc/systemd/system/${SERVICE_NAME}.service"
   rm -f "$service_tmp"
   run_priv chown -R "$TARGET_USER:$TARGET_USER" "$APP_DIR"
@@ -178,29 +175,26 @@ EOF_SERVICE
 
 install_bot() {
   resolve_paths
-  echo -e "${cyan}╔══════════════════════════════════════════════════╗${reset}"
-  echo -e "${cyan}║${reset}  ${magenta}🚀 INSTALLING SNCK DISCORD VPS DEPLOY BOT${reset}   ${cyan}║${reset}"
-  echo -e "${cyan}╚══════════════════════════════════════════════════╝${reset}"
+  echo -e "${purple}╔══════════════════════════════════════════════════╗${reset}"
+  echo -e "${purple}║${reset}  ${cyan}SNCK DISCORD VPS DEPLOY BOT${reset}                    ${purple}║${reset}"
+  echo -e "${purple}║${reset}  ${gray}INSTALLATION${reset}                                    ${purple}║${reset}"
+  echo -e "${purple}╚══════════════════════════════════════════════════╝${reset}"
   echo
-
   prepare_packages
   prepare_lxd
   download_files
-
   info "Creating isolated Python environment..."
   python3 -m venv "$VENV" || die "Could not create Python virtual environment."
   "$VENV/bin/python" -m pip install --upgrade pip wheel
   "$VENV/bin/pip" install --upgrade -r "$APP_DIR/requirements.txt"
-
   echo
-  echo -e "${cyan}========== ${white}Discord Bot Setup${cyan} ==========${reset}"
+  echo -e "${purple}========== ${white}DISCORD BOT SETUP${purple} ==========${reset}"
   echo -e "${dim}Only the Discord bot token is required.${reset}"
   echo
-  printf "${cyan}🔐 Discord Bot Token:${reset} "
+  printf "${cyan}DISCORD BOT TOKEN:${reset} "
   IFS= read -r -s DISCORD_TOKEN <&3 || true
   echo
   [[ -n "$DISCORD_TOKEN" ]] || die "Discord token is required."
-
   cat > "$ENV_FILE" <<EOF_ENV
 DISCORD_TOKEN=$DISCORD_TOKEN
 BOT_NAME=Snck
@@ -225,10 +219,8 @@ VPS_DEPLOY_LIMIT=1
 EOF_ENV
   chmod 600 "$ENV_FILE"
   run_priv chown "$TARGET_USER:$TARGET_USER" "$ENV_FILE" "$APP_DIR" 2>/dev/null || true
-
   "$VENV/bin/python" -m py_compile "$APP_DIR/bot.py" "$APP_DIR/launcher.py" || die "Python syntax validation failed."
   create_service
-
   if [[ "${SYSTEMD_READY:-false}" != true ]]; then
     run_priv chown -R "$TARGET_USER:$TARGET_USER" "$APP_DIR" 2>/dev/null || true
     nohup "$VENV/bin/python" "$APP_DIR/launcher.py" >> "$APP_DIR/bot.log" 2>&1 &
@@ -243,7 +235,6 @@ EOF_ENV
       die "Snck Bot did not stay running. Check $APP_DIR/bot.log"
     fi
   fi
-
   chmod 600 "$ENV_FILE"
   echo
   ok "Installation complete!"
@@ -259,13 +250,11 @@ update_bot() {
   resolve_paths
   [[ -d "$APP_DIR" ]] || die "Snck Bot is not installed at $APP_DIR."
   [[ -f "$ENV_FILE" ]] || die "Bot configuration is missing: $ENV_FILE"
-
   info "Updating Snck Bot..."
   download_files
   [[ -d "$VENV" ]] || die "Python environment is missing. Run Install first."
   "$VENV/bin/pip" install --upgrade -r "$APP_DIR/requirements.txt"
   "$VENV/bin/python" -m py_compile "$APP_DIR/bot.py" "$APP_DIR/launcher.py" || die "Python syntax validation failed."
-
   if [[ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]]; then
     create_service
   elif [[ -f "$APP_DIR/bot.pid" ]]; then
@@ -284,19 +273,16 @@ uninstall_bot() {
   printf "Type YES to continue: "
   read_terminal confirm
   [[ "$confirm" == "YES" ]] || { echo "Cancelled."; return 0; }
-
   if command -v systemctl >/dev/null 2>&1; then
     run_priv systemctl disable --now "$SERVICE_NAME" 2>/dev/null || true
     run_priv rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
     run_priv systemctl daemon-reload 2>/dev/null || true
   fi
-
   if [[ -f "$APP_DIR/bot.pid" ]]; then
     local old_pid
     old_pid="$(cat "$APP_DIR/bot.pid" 2>/dev/null || true)"
     if [[ "$old_pid" =~ ^[0-9]+$ ]]; then kill "$old_pid" 2>/dev/null || true; fi
   fi
-
   run_priv rm -rf "$APP_DIR"
   ok "Snck Bot has been uninstalled."
 }
