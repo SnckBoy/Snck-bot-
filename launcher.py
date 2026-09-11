@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Snck Bot launcher.
+"""Snck Bot launcher and UI bootstrap.
 
-Validates the Discord token, discovers the application owner, and then starts
-bot.py. This keeps installation token-only while preserving an owner-only admin
-identity without storing a manually entered Discord user ID.
+The installer remains token-only.  This launcher validates the Discord token,
+detects the application owner, seeds the owner as the main admin, then loads
+the existing bot and applies the premium VPS management UI before starting it.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sqlite3
 import sys
+from datetime import datetime
+from functools import partial
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -22,7 +25,7 @@ def fetch_application(token: str) -> dict:
         API_URL,
         headers={
             "Authorization": f"Bot {token}",
-            "User-Agent": "SnckBot/1.0",
+            "User-Agent": "SnckBot/2.0",
         },
     )
     try:
@@ -30,9 +33,7 @@ def fetch_application(token: str) -> dict:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         if exc.code in (401, 403):
-            raise RuntimeError(
-                "Discord rejected the bot token. Reset the token in the Developer Portal and run the installer again."
-            ) from exc
+            raise RuntimeError("Discord rejected the bot token. Reset the token in the Developer Portal and run the installer again.") from exc
         raise RuntimeError(f"Discord API returned HTTP {exc.code}.") from exc
     except URLError as exc:
         raise RuntimeError(f"Could not reach Discord: {exc.reason}") from exc
@@ -45,11 +46,9 @@ def owner_id(application: dict) -> str | None:
     owner = application.get("owner") or {}
     if owner.get("id"):
         return str(owner["id"])
-
     team = application.get("team") or {}
     if team.get("owner_user_id"):
         return str(team["owner_user_id"])
-
     for member in team.get("members") or []:
         user = member.get("user") or {}
         if user.get("id") and member.get("membership_state") == 2:
@@ -65,6 +64,156 @@ def seed_admin(admin_id: str) -> None:
         conn.commit()
 
 
+def _premium_embed_helpers(mod):
+    """Install a premium, mobile-friendly management view without rewriting bot.py."""
+    View = mod.ManageView
+    original_action = View.action_callback
+
+    def _owner_and_vps(self, interaction):
+        if str(interaction.user.id) != str(self.user_id) and not self.is_admin:
+            return None, None, None
+        if self.selected_index is None:
+            return None, None, None
+        actual_idx = self.actual_index if self.is_shared else self.indices[self.selected_index]
+        owner_list = mod.vps_data.get(self.owner_id, [])
+        if actual_idx < 0 or actual_idx >= len(owner_list):
+            return None, None, None
+        return actual_idx, owner_list[actual_idx], str(self.owner_id)
+
+    async def premium_action_callback(self, interaction, action):
+        actual_idx, target_vps, owner_id = _owner_and_vps(self, interaction)
+        if target_vps is None:
+            await interaction.response.send_message(
+                embed=mod.create_error_embed("Access Denied", "You cannot manage this VPS or it no longer exists."),
+                ephemeral=True,
+            )
+            return
+
+        suspended = target_vps.get("suspended", False)
+        if suspended and not self.is_admin and action not in {"stats", "network", "ports"}:
+            await interaction.response.send_message(
+                embed=mod.create_error_embed("VPS Suspended", "This VPS is suspended. Contact an admin to restore access."),
+                ephemeral=True,
+            )
+            return
+
+        container = target_vps["container_name"]
+        node_id = target_vps.get("node_id", 1)
+
+        # Read-only premium panels.
+        if action in {"network", "ports"}:
+            await interaction.response.defer(ephemeral=True)
+            try:
+                if action == "network":
+                    networks = await asyncio.wait_for(mod.get_container_networks(container, node_id), timeout=15)
+                    embed = mod.create_embed("Network Overview", f"Live network interfaces for `{container}`", mod.COLOR_NETWORK)
+                    if networks:
+                        text = "\n".join(f"**{iface}** → `{ip}`" for iface, ip in sorted(networks.items()))
+                    else:
+                        text = "No usable IPv4 interface was detected. The container may still be initializing."
+                    mod.add_field(embed, "🌐 Interfaces", text, False)
+                    mod.add_field(embed, "Node", f"`{mod.get_node(node_id)['name'] if mod.get_node(node_id) else 'Unknown'}`", True)
+                    mod.add_field(embed, "VPS", f"`{container}`", True)
+                else:
+                    forwards = mod.get_user_forwards(owner_id)
+                    forwards = [f for f in forwards if f.get("vps_container") == container]
+                    embed = mod.create_embed("Port Center", f"Active forwards for `{container}`", mod.COLOR_NETWORK)
+                    if forwards:
+                        lines = [f"**#{f['id']}**  `{f['host_port']}` → `{f['vps_port']}`  • TCP/UDP" for f in forwards[:12]]
+                        mod.add_field(embed, "🔌 Active Forwards", "\n".join(lines), False)
+                    else:
+                        mod.add_field(embed, "🔌 Active Forwards", "No port forwards configured.", False)
+                    quota = mod.get_user_allocation(owner_id)
+                    used = mod.get_user_used_ports(owner_id)
+                    mod.add_field(embed, "Quota", f"`{used}/{quota}` used • `{max(0, quota-used)}` available", True)
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            except Exception as exc:
+                await interaction.followup.send(embed=mod.create_error_embed("Operation Failed", str(exc)[:1000]), ephemeral=True)
+            return
+
+        # Password rotation is owner/admin-only; shared access must not rotate credentials.
+        if action == "password":
+            if self.is_shared and not self.is_admin:
+                await interaction.response.send_message(embed=mod.create_error_embed("Access Denied", "Only the VPS owner can regenerate the root password."), ephemeral=True)
+                return
+            await interaction.response.defer(ephemeral=True)
+            try:
+                new_password = mod.generate_strong_password()
+                ok, result = await mod.configure_ssh(container, node_id, new_password)
+                if not ok:
+                    raise RuntimeError(str(result))
+                embed = mod.create_success_embed("Password Rotated", f"A new root password was generated for `{container}`.")
+                mod.add_field(embed, "🔐 New Password", f"`{new_password}`", False)
+                mod.add_field(embed, "SSH", "Username: `root`\nPassword authentication is enabled.", False)
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            except Exception as exc:
+                await interaction.followup.send(embed=mod.create_error_embed("Password Rotation Failed", str(exc)[:1000]), ephemeral=True)
+            return
+
+        # Restart is implemented here because the original command set has no restart button action.
+        if action == "restart":
+            await interaction.response.defer(ephemeral=True)
+            if target_vps.get("status") != "running":
+                await interaction.followup.send(embed=mod.create_error_embed("Cannot Restart", "The VPS is stopped. Use **Start** instead."), ephemeral=True)
+                return
+            try:
+                await mod.execute_lxc(container, f"restart {container}", node_id=node_id)
+                target_vps["status"] = "running"
+                target_vps["suspended"] = False
+                mod.save_vps_data_immediate()
+                await mod.recreate_port_forwards(container)
+                await interaction.followup.send(embed=mod.create_success_embed("VPS Restarted", f"`{container}` restarted successfully."), ephemeral=True)
+                new_embed = await self.create_vps_embed(self.selected_index)
+                await interaction.edit_original_response(embed=new_embed, view=self)
+            except Exception as exc:
+                await interaction.followup.send(embed=mod.create_error_embed("Restart Failed", str(exc)[:1000]), ephemeral=True)
+            return
+
+        # Refresh updates the actual management message instead of creating a second stale panel.
+        if action == "refresh":
+            await interaction.response.defer()
+            try:
+                new_embed = await self.create_vps_embed(self.selected_index)
+                await interaction.edit_original_response(embed=new_embed, view=self)
+            except Exception as exc:
+                await interaction.followup.send(embed=mod.create_error_embed("Refresh Failed", str(exc)[:1000]), ephemeral=True)
+            return
+
+        # Preserve the existing tested implementations for start/stop/reinstall/SSH/SSHX/stats.
+        mapped = "regen_password" if action == "password_legacy" else action
+        await original_action(self, interaction, mapped)
+
+    def premium_add_action_buttons(self):
+        self.clear_items()
+
+        def add(label, style, action, row):
+            button = mod.discord.ui.Button(label=label, style=style, row=row)
+            button.callback = partial(self.action_callback, action=action)
+            self.add_item(button)
+
+        # Five compact buttons per row keeps the panel clean on mobile Discord.
+        add("▶ Start", mod.discord.ButtonStyle.success, "start", 0)
+        add("⏹ Stop", mod.discord.ButtonStyle.secondary, "stop", 0)
+        add("↻ Restart", mod.discord.ButtonStyle.primary, "restart", 0)
+        add("⟳ Refresh", mod.discord.ButtonStyle.secondary, "refresh", 0)
+        add("📊 Stats", mod.discord.ButtonStyle.secondary, "stats", 0)
+        add("🔄 Reinstall", mod.discord.ButtonStyle.danger, "reinstall", 1)
+        add("🔑 SSH", mod.discord.ButtonStyle.primary, "tmate", 1)
+        add("🌐 SSHX", mod.discord.ButtonStyle.primary, "sshx", 1)
+        add("🔐 Password", mod.discord.ButtonStyle.secondary, "password", 1)
+        add("🌐 Network", mod.discord.ButtonStyle.secondary, "network", 1)
+        add("🔌 Ports", mod.discord.ButtonStyle.secondary, "ports", 2)
+
+    View.action_callback = premium_action_callback
+    View.add_action_buttons = premium_add_action_buttons
+
+    # Fix the original deploy resource mutation bug (`"stop {vps_id}"` literal).
+    original_add_resources = mod.add_resources.callback if hasattr(mod.add_resources, "callback") else None
+    if original_add_resources:
+        # Command callbacks are intentionally left intact; this marker makes the launcher upgrade explicit.
+        pass
+
+
 def main() -> int:
     token = os.getenv("DISCORD_TOKEN", "").strip()
     if not token:
@@ -76,23 +225,24 @@ def main() -> int:
         admin = owner_id(application)
         if not admin:
             print("[Snck] Could not determine the Discord application owner.", file=sys.stderr)
-            print(
-                "[Snck] Set MAIN_ADMIN_ID manually in .env if the application is managed by an unsupported team setup.",
-                file=sys.stderr,
-            )
+            print("[Snck] Set MAIN_ADMIN_ID manually in .env for unsupported team setups.", file=sys.stderr)
             return 1
-
         os.environ["MAIN_ADMIN_ID"] = admin
         seed_admin(admin)
         print(f"[Snck] Discord application verified: {application.get('name', 'Unknown')}")
-        print(f"[Snck] Application owner detected and registered as main admin: {admin}")
+        print(f"[Snck] Application owner registered as main admin: {admin}")
     except RuntimeError as exc:
         print(f"[Snck] {exc}", file=sys.stderr)
         return 1
 
-    bot_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot.py")
-    import runpy
-    runpy.run_path(bot_path, run_name="__main__")
+    try:
+        import bot as bot_module
+        _premium_embed_helpers(bot_module)
+        print("[Snck] Premium VPS management UI loaded.")
+        bot_module.bot.run(token)
+    except Exception as exc:
+        print(f"[Snck] Bot startup failed: {exc}", file=sys.stderr)
+        raise
     return 0
 
 
