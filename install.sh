@@ -86,10 +86,10 @@ python3 -m venv "$VENV" || die "Could not create Python virtual environment."
 "$VENV/bin/python" -m pip install --upgrade pip wheel
 "$VENV/bin/pip" install --upgrade -r "$APP_DIR/requirements.txt"
 
-# The only interactive value is the bot token. The launcher securely discovers
-# the Discord application's owner and uses that account as the main admin.
+# The only interactive value is the bot token. /dev/tty makes this work with
+# both `curl | bash` and `curl | sudo bash` without consuming the installer pipe.
 printf '\n========== Snck Bot Setup ==========\n'
-read -r -s -p "Discord Bot Token: " DISCORD_TOKEN; echo
+read -r -s -p "Discord Bot Token: " DISCORD_TOKEN </dev/tty; echo
 [[ -n "$DISCORD_TOKEN" ]] || die "Discord token is required."
 
 cat > "$ENV_FILE" <<EOF_ENV
