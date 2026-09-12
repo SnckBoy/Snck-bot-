@@ -3,27 +3,67 @@ set -Eeuo pipefail
 APP_NAME="Snck Discord VPS Deploy Bot"
 SERVICE_NAME="snck-discord-bot"
 REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
-INSTALLER_VERSION="2.2.0"
+INSTALLER_VERSION="2.3.0"
 ESC=$'\033'; RESET="${ESC}[0m"; BOLD="${ESC}[1m"; DIM="${ESC}[2m"; CYAN="${ESC}[38;5;51m"; BLUE="${ESC}[38;5;39m"; PURPLE="${ESC}[38;5;141m"; MAGENTA="${ESC}[38;5;201m"; GREEN="${ESC}[38;5;82m"; YELLOW="${ESC}[38;5;220m"; RED="${ESC}[38;5;196m"; WHITE="${ESC}[38;5;255m"; GRAY="${ESC}[38;5;245m"
-if [[ -r /dev/tty ]]; then exec 3</dev/tty; else printf '%b\n' "${RED}ERROR:${RESET} An interactive terminal is required." >&2; exit 1; fi
-say(){ printf '%b\n' "$*"; }; line(){ printf '%b%s%b\n' "$BLUE" '────────────────────────────────────────────────────────' "$RESET"; }; info(){ say "${CYAN}[INFO]${RESET} $*"; }; ok(){ say "${GREEN}[OK]${RESET} $*"; }; warn(){ say "${YELLOW}[WARN]${RESET} $*"; }; die(){ say "${RED}[ERROR]${RESET} $*" >&2; exit 1; }
-resolve_paths(){ local user home_dir=''; if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]]; then user="$SUDO_USER"; else user="${USER:-$(id -un)}"; fi; if command -v getent >/dev/null 2>&1; then home_dir="$(timeout 3 getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"; fi; home_dir="${home_dir:-${HOME:-/root}}"; APP_DIR="$home_dir/snck-bot"; ENV_FILE="$APP_DIR/.env"; }
 
-live_status(){
-  resolve_paths
-  local install_state files_state service_state
-  if [[ -f "$ENV_FILE" && -d "$APP_DIR" ]]; then install_state="INSTALLED"; else install_state="NOT INSTALLED"; fi
-  if [[ -x "$APP_DIR/venv/bin/python" && -f "$APP_DIR/bot.py" && -f "$APP_DIR/launcher.py" ]]; then files_state="READY"; else files_state="NOT READY"; fi
-  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then service_state="ONLINE"; elif command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then service_state="OFFLINE"; else service_state="NOT INSTALLED"; fi
-  printf '%b\n' "${BOLD}${CYAN}  LIVE STATUS${RESET}  ${DIM}installer v${INSTALLER_VERSION}${RESET}"
-  printf '%b\n' "${BLUE}  ╭──────────────────────────────────────────────────╮${RESET}"
-  if [[ "$install_state" == "INSTALLED" ]]; then printf '%b\n' "${GREEN}  │  INSTALLATION   : INSTALLED${RESET}                 ${BLUE}│${RESET}"; else printf '%b\n' "${YELLOW}  │  INSTALLATION   : NOT INSTALLED${RESET}             ${BLUE}│${RESET}"; fi
-  if [[ "$files_state" == "READY" ]]; then printf '%b\n' "${GREEN}  │  BOT FILES      : READY${RESET}                     ${BLUE}│${RESET}"; else printf '%b\n' "${YELLOW}  │  BOT FILES      : NOT READY${RESET}                 ${BLUE}│${RESET}"; fi
-  case "$service_state" in ONLINE) printf '%b\n' "${GREEN}  │  SERVICE        : ONLINE${RESET}                    ${BLUE}│${RESET}";; OFFLINE) printf '%b\n' "${YELLOW}  │  SERVICE        : OFFLINE${RESET}                   ${BLUE}│${RESET}";; *) printf '%b\n' "${GRAY}  │  SERVICE        : NOT INSTALLED${RESET}             ${BLUE}│${RESET}";; esac
-  printf '%b\n' "${BLUE}  ╰──────────────────────────────────────────────────╯${RESET}"
+# curl | bash needs a real terminal for menu input. Keep stdin untouched for the pipe.
+if [[ -r /dev/tty ]]; then exec 3<>/dev/tty; else printf '%b\n' "${RED}ERROR:${RESET} An interactive terminal is required." >&2; exit 1; fi
+say(){ printf '%b\n' "$*"; }
+line(){ printf '%b%s%b\n' "$BLUE" '────────────────────────────────────────────────────────' "$RESET"; }
+info(){ say "${CYAN}[INFO]${RESET} $*"; }
+ok(){ say "${GREEN}[OK]${RESET} $*"; }
+warn(){ say "${YELLOW}[WARN]${RESET} $*"; }
+die(){ say "${RED}[ERROR]${RESET} $*" >&2; exit 1; }
+
+resolve_paths(){
+  local user home_dir=''
+  if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]]; then user="$SUDO_USER"; else user="${USER:-root}"; fi
+  if command -v getent >/dev/null 2>&1; then home_dir="$(timeout 3 getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"; fi
+  home_dir="${home_dir:-${HOME:-/root}}"
+  APP_DIR="$home_dir/snck-bot"
+  ENV_FILE="$APP_DIR/.env"
 }
 
-banner(){ printf '\n'; printf '%b╭──────────────────────────────────────────────────────╮%b\n' "$PURPLE" "$RESET"; printf '%b│%b  %bSNCK DISCORD VPS DEPLOY BOT%b                     %b│%b\n' "$PURPLE" "$RESET" "$BOLD$WHITE" "$RESET" "$PURPLE" "$RESET"; printf '%b│%b  %bPremium VPS deployment and management%b             %b│%b\n' "$PURPLE" "$RESET" "$DIM$CYAN" "$RESET" "$PURPLE" "$RESET"; printf '%b├──────────────────────────────────────────────────────┤%b\n' "$BLUE" "$RESET"; printf '%b│%b  %bPRODUCTION INSTALLER%b   %bUbuntu / Debian%b          %b│%b\n' "$BLUE" "$RESET" "$BOLD$MAGENTA" "$RESET" "$GRAY" "$RESET" "$BLUE" "$RESET"; printf '%b╰──────────────────────────────────────────────────────╯%b\n' "$PURPLE" "$RESET"; }
+status_value(){
+  local kind="$1"
+  resolve_paths
+  case "$kind" in
+    install) [[ -d "$APP_DIR" && -f "$ENV_FILE" ]] && printf 'INSTALLED' || printf 'NOT INSTALLED' ;;
+    files) [[ -x "$APP_DIR/venv/bin/python" && -f "$APP_DIR/bot.py" && -f "$APP_DIR/launcher.py" ]] && printf 'READY' || printf 'NOT READY' ;;
+    service)
+      if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then printf 'ONLINE'
+      elif command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then printf 'OFFLINE'
+      else printf 'NOT INSTALLED'; fi
+      ;;
+  esac
+}
+
+live_status(){
+  local install_state files_state service_state
+  install_state="$(status_value install)"
+  files_state="$(status_value files)"
+  service_state="$(status_value service)"
+  printf '%b  LIVE STATUS  %bInstaller v%s%b\n' "$BOLD$CYAN" "$DIM" "$INSTALLER_VERSION" "$RESET"
+  printf '%b  ╭──────────────────────────────────────────────────╮%b\n' "$BLUE" "$RESET"
+  if [[ "$install_state" == INSTALLED ]]; then printf '%b  │  INSTALLATION   : INSTALLED                      │%b\n' "$GREEN" "$RESET"; else printf '%b  │  INSTALLATION   : NOT INSTALLED                  │%b\n' "$YELLOW" "$RESET"; fi
+  if [[ "$files_state" == READY ]]; then printf '%b  │  BOT FILES      : READY                          │%b\n' "$GREEN" "$RESET"; else printf '%b  │  BOT FILES      : NOT READY                      │%b\n' "$YELLOW" "$RESET"; fi
+  case "$service_state" in
+    ONLINE) printf '%b  │  SERVICE        : ONLINE                         │%b\n' "$GREEN" "$RESET" ;;
+    OFFLINE) printf '%b  │  SERVICE        : OFFLINE                        │%b\n' "$YELLOW" "$RESET" ;;
+    *) printf '%b  │  SERVICE        : NOT INSTALLED                 │%b\n' "$GRAY" "$RESET" ;;
+  esac
+  printf '%b  ╰──────────────────────────────────────────────────╯%b\n' "$BLUE" "$RESET"
+}
+
+banner(){
+  printf '\n'
+  printf '%b╭──────────────────────────────────────────────────────╮%b\n' "$PURPLE" "$RESET"
+  printf '%b│%b  %bSNCK DISCORD VPS DEPLOY BOT%b                     %b│%b\n' "$PURPLE" "$RESET" "$BOLD$WHITE" "$RESET" "$PURPLE" "$RESET"
+  printf '%b│%b  %bPremium VPS deployment and management%b             %b│%b\n' "$PURPLE" "$RESET" "$DIM$CYAN" "$RESET" "$PURPLE" "$RESET"
+  printf '%b├──────────────────────────────────────────────────────┤%b\n' "$BLUE" "$RESET"
+  printf '%b│%b  %bPRODUCTION INSTALLER%b   %bUbuntu / Debian%b          %b│%b\n' "$BLUE" "$RESET" "$BOLD$MAGENTA" "$RESET" "$GRAY" "$RESET" "$BLUE" "$RESET"
+  printf '%b╰──────────────────────────────────────────────────────╯%b\n' "$PURPLE" "$RESET"
+}
 
 menu(){
   while true; do
@@ -31,11 +71,11 @@ menu(){
     live_status
     printf '\n%b  MAIN MENU%b\n' "$BOLD$CYAN" "$RESET"
     printf '%b  ╭──────────────────────────────────────────────────╮%b\n' "$BLUE" "$RESET"
-    printf '%b  │%b  %b[1]%b  %bInstall Snck Discord VPS Deploy Bot%b       %b│%b\n' "$BLUE" "$RESET" "$GREEN" "$RESET" "$WHITE" "$RESET" "$BLUE" "$RESET"
-    printf '%b  │%b  %b[2]%b  %bUpdate Bot%b                                 %b│%b\n' "$BLUE" "$RESET" "$CYAN" "$RESET" "$WHITE" "$RESET" "$BLUE" "$RESET"
-    printf '%b  │%b  %b[3]%b  %bUninstall Bot%b                              %b│%b\n' "$BLUE" "$RESET" "$RED" "$RESET" "$WHITE" "$RESET" "$BLUE" "$RESET"
-    printf '%b  │%b  %b[4]%b  %bRefresh Live Status%b                         %b│%b\n' "$BLUE" "$RESET" "$YELLOW" "$RESET" "$WHITE" "$RESET" "$BLUE" "$RESET"
-    printf '%b  │%b  %b[0]%b  %bExit%b                                        %b│%b\n' "$BLUE" "$RESET" "$MAGENTA" "$RESET" "$WHITE" "$RESET" "$BLUE" "$RESET"
+    printf '%b  │%b  %b[1]%b  Install Snck Discord VPS Deploy Bot       %b│%b\n' "$BLUE" "$GREEN" "$RESET" "$WHITE" "$BLUE" "$RESET"
+    printf '%b  │%b  %b[2]%b  Update Bot                                 %b│%b\n' "$BLUE" "$CYAN" "$RESET" "$WHITE" "$BLUE" "$RESET"
+    printf '%b  │%b  %b[3]%b  Uninstall Bot                              %b│%b\n' "$BLUE" "$RED" "$RESET" "$WHITE" "$BLUE" "$RESET"
+    printf '%b  │%b  %b[4]%b  Refresh Live Status                         %b│%b\n' "$BLUE" "$YELLOW" "$RESET" "$WHITE" "$BLUE" "$RESET"
+    printf '%b  │%b  %b[0]%b  Exit                                        %b│%b\n' "$BLUE" "$MAGENTA" "$RESET" "$WHITE" "$BLUE" "$RESET"
     printf '%b  ╰──────────────────────────────────────────────────╯%b\n' "$BLUE" "$RESET"
     printf '\n%b  Select an option [1-4, 0]: %b' "$BOLD$WHITE" "$RESET"
     IFS= read -r choice <&3 || true
@@ -51,7 +91,7 @@ menu(){
   done
 }
 
-require_root(){ [[ "$(id -u)" -eq 0 || $(command -v sudo >/dev/null 2>&1; echo $?) -eq 0 ]] || die 'Root or sudo is required.'; }
+require_root(){ [[ "$(id -u)" -eq 0 || "$(command -v sudo >/dev/null 2>&1; echo $?)" -eq 0 ]] || die 'Root or sudo is required.'; }
 run_root(){ if [[ "$(id -u)" -eq 0 ]]; then "$@"; else sudo "$@"; fi; }
 
 install_bot(){
@@ -77,7 +117,7 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-  run_root systemctl daemon-reload; run_root systemctl enable --now "$SERVICE_NAME"; ok 'Snck Discord VPS Deploy Bot is installed and running.'; info "Service: $SERVICE_NAME"; menu
+  run_root systemctl daemon-reload; run_root systemctl enable --now "$SERVICE_NAME"; ok 'Snck Discord VPS Deploy Bot is installed and running.'; menu
 }
 
 update_bot(){ resolve_paths; [[ -d "$APP_DIR" ]] || { warn "Bot is not installed at $APP_DIR."; sleep 2; return; }; line; say "${BOLD}${CYAN}UPDATE${RESET}"; line; for f in bot.py launcher.py requirements.txt start.sh; do curl -fsSL "$REPO_RAW/$f" -o "$APP_DIR/$f"; done; chmod +x "$APP_DIR/start.sh"; "$APP_DIR/venv/bin/pip" install -r "$APP_DIR/requirements.txt"; run_root systemctl restart "$SERVICE_NAME" || true; ok 'Bot updated successfully.'; menu; }
