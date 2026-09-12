@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-APP_NAME="Snck Discord VPS Deploy Bot"
+APP_NAME="SNCK DISCORD VPS DEPLOY BOT"
 SERVICE_NAME="snck-discord-bot"
 REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
-INSTALLER_VERSION="2.3.0"
-ESC=$'\033'; RESET="${ESC}[0m"; BOLD="${ESC}[1m"; DIM="${ESC}[2m"; CYAN="${ESC}[38;5;51m"; BLUE="${ESC}[38;5;39m"; PURPLE="${ESC}[38;5;141m"; MAGENTA="${ESC}[38;5;201m"; GREEN="${ESC}[38;5;82m"; YELLOW="${ESC}[38;5;220m"; RED="${ESC}[38;5;196m"; WHITE="${ESC}[38;5;255m"; GRAY="${ESC}[38;5;245m"
+INSTALLER_VERSION="2.4.0"
+ESC=$'\033'; RESET="${ESC}[0m"; BOLD="${ESC}[1m"; DIM="${ESC}[2m"
+CYAN="${ESC}[38;5;51m"; BLUE="${ESC}[38;5;39m"; PURPLE="${ESC}[38;5;141m"; MAGENTA="${ESC}[38;5;201m"; GREEN="${ESC}[38;5;82m"; YELLOW="${ESC}[38;5;220m"; RED="${ESC}[38;5;196m"; WHITE="${ESC}[38;5;255m"; GRAY="${ESC}[38;5;245m"
 
-# curl | bash needs a real terminal for menu input. Keep stdin untouched for the pipe.
+# curl | bash: read menu input from the real terminal, not curl's stdin.
 if [[ -r /dev/tty ]]; then exec 3<>/dev/tty; else printf '%b\n' "${RED}ERROR:${RESET} An interactive terminal is required." >&2; exit 1; fi
 say(){ printf '%b\n' "$*"; }
 line(){ printf '%b%s%b\n' "$BLUE" '────────────────────────────────────────────────────────' "$RESET"; }
@@ -14,6 +15,11 @@ info(){ say "${CYAN}[INFO]${RESET} $*"; }
 ok(){ say "${GREEN}[OK]${RESET} $*"; }
 warn(){ say "${YELLOW}[WARN]${RESET} $*"; }
 die(){ say "${RED}[ERROR]${RESET} $*" >&2; exit 1; }
+
+# Dynamic accent used by the menu header on every redraw.
+ACCENTS=("$CYAN" "$BLUE" "$PURPLE" "$MAGENTA" "$GREEN")
+accent_index=0
+next_accent(){ accent_index=$(( (accent_index + 1) % ${#ACCENTS[@]} )); printf '%s' "${ACCENTS[$accent_index]}"; }
 
 resolve_paths(){
   local user home_dir=''
@@ -25,61 +31,56 @@ resolve_paths(){
 }
 
 status_value(){
-  local kind="$1"
-  resolve_paths
+  local kind="$1"; resolve_paths
   case "$kind" in
     install) [[ -d "$APP_DIR" && -f "$ENV_FILE" ]] && printf 'INSTALLED' || printf 'NOT INSTALLED' ;;
     files) [[ -x "$APP_DIR/venv/bin/python" && -f "$APP_DIR/bot.py" && -f "$APP_DIR/launcher.py" ]] && printf 'READY' || printf 'NOT READY' ;;
     service)
       if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then printf 'ONLINE'
       elif command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then printf 'OFFLINE'
-      else printf 'NOT INSTALLED'; fi
-      ;;
+      else printf 'NOT INSTALLED'; fi ;;
   esac
 }
 
 live_status(){
   local install_state files_state service_state
-  install_state="$(status_value install)"
-  files_state="$(status_value files)"
-  service_state="$(status_value service)"
-  printf '%b  LIVE STATUS  %bInstaller v%s%b\n' "$BOLD$CYAN" "$DIM" "$INSTALLER_VERSION" "$RESET"
+  install_state="$(status_value install)"; files_state="$(status_value files)"; service_state="$(status_value service)"
+  printf '%b  LIVE SYSTEM STATUS%b  %bInstaller v%s%b\n' "$BOLD$CYAN" "$RESET" "$DIM" "$INSTALLER_VERSION" "$RESET"
   printf '%b  ╭──────────────────────────────────────────────────╮%b\n' "$BLUE" "$RESET"
-  if [[ "$install_state" == INSTALLED ]]; then printf '%b  │  INSTALLATION   : INSTALLED                      │%b\n' "$GREEN" "$RESET"; else printf '%b  │  INSTALLATION   : NOT INSTALLED                  │%b\n' "$YELLOW" "$RESET"; fi
-  if [[ "$files_state" == READY ]]; then printf '%b  │  BOT FILES      : READY                          │%b\n' "$GREEN" "$RESET"; else printf '%b  │  BOT FILES      : NOT READY                      │%b\n' "$YELLOW" "$RESET"; fi
+  [[ "$install_state" == INSTALLED ]] && printf '%b  │  INSTALLATION   : INSTALLED                      │%b\n' "$GREEN" "$RESET" || printf '%b  │  INSTALLATION   : NOT INSTALLED                  │%b\n' "$YELLOW" "$RESET"
+  [[ "$files_state" == READY ]] && printf '%b  │  BOT FILES      : READY                          │%b\n' "$GREEN" "$RESET" || printf '%b  │  BOT FILES      : NOT READY                      │%b\n' "$YELLOW" "$RESET"
   case "$service_state" in
-    ONLINE) printf '%b  │  SERVICE        : ONLINE                         │%b\n' "$GREEN" "$RESET" ;;
-    OFFLINE) printf '%b  │  SERVICE        : OFFLINE                        │%b\n' "$YELLOW" "$RESET" ;;
-    *) printf '%b  │  SERVICE        : NOT INSTALLED                 │%b\n' "$GRAY" "$RESET" ;;
+    ONLINE) printf '%b  │  SERVICE        : ONLINE                         │%b\n' "$GREEN" "$RESET";;
+    OFFLINE) printf '%b  │  SERVICE        : OFFLINE                        │%b\n' "$YELLOW" "$RESET";;
+    *) printf '%b  │  SERVICE        : NOT INSTALLED                 │%b\n' "$GRAY" "$RESET";;
   esac
   printf '%b  ╰──────────────────────────────────────────────────╯%b\n' "$BLUE" "$RESET"
 }
 
 banner(){
+  local a; a="$(next_accent)"
   printf '\n'
-  printf '%b╭──────────────────────────────────────────────────────╮%b\n' "$PURPLE" "$RESET"
-  printf '%b│%b  %bSNCK DISCORD VPS DEPLOY BOT%b                     %b│%b\n' "$PURPLE" "$RESET" "$BOLD$WHITE" "$RESET" "$PURPLE" "$RESET"
-  printf '%b│%b  %bPremium VPS deployment and management%b             %b│%b\n' "$PURPLE" "$RESET" "$DIM$CYAN" "$RESET" "$PURPLE" "$RESET"
-  printf '%b├──────────────────────────────────────────────────────┤%b\n' "$BLUE" "$RESET"
-  printf '%b│%b  %bPRODUCTION INSTALLER%b   %bUbuntu / Debian%b          %b│%b\n' "$BLUE" "$RESET" "$BOLD$MAGENTA" "$RESET" "$GRAY" "$RESET" "$BLUE" "$RESET"
-  printf '%b╰──────────────────────────────────────────────────────╯%b\n' "$PURPLE" "$RESET"
+  printf '%b╭──────────────────────────────────────────────────────╮%b\n' "$a" "$RESET"
+  printf '%b│  %bSNCK DISCORD VPS DEPLOY BOT%b                     %b│%b\n' "$a" "$BOLD$WHITE" "$RESET" "$a" "$RESET"
+  printf '%b│  %bPremium VPS deployment and management             %b│%b\n' "$a" "$DIM$CYAN" "$RESET" "$a" "$RESET"
+  printf '%b├──────────────────────────────────────────────────────┤%b\n' "$a" "$RESET"
+  printf '%b│  %bPRODUCTION INSTALLER%b   %bUbuntu / Debian          %b│%b\n' "$a" "$BOLD$MAGENTA" "$RESET" "$GRAY" "$a" "$RESET"
+  printf '%b╰──────────────────────────────────────────────────────╯%b\n' "$a" "$RESET"
 }
 
 menu(){
   while true; do
-    banner
-    live_status
+    banner; live_status
     printf '\n%b  MAIN MENU%b\n' "$BOLD$CYAN" "$RESET"
     printf '%b  ╭──────────────────────────────────────────────────╮%b\n' "$BLUE" "$RESET"
-    printf '%b  │%b  %b[1]%b  Install Snck Discord VPS Deploy Bot       %b│%b\n' "$BLUE" "$GREEN" "$RESET" "$WHITE" "$BLUE" "$RESET"
-    printf '%b  │%b  %b[2]%b  Update Bot                                 %b│%b\n' "$BLUE" "$CYAN" "$RESET" "$WHITE" "$BLUE" "$RESET"
-    printf '%b  │%b  %b[3]%b  Uninstall Bot                              %b│%b\n' "$BLUE" "$RED" "$RESET" "$WHITE" "$BLUE" "$RESET"
-    printf '%b  │%b  %b[4]%b  Refresh Live Status                         %b│%b\n' "$BLUE" "$YELLOW" "$RESET" "$WHITE" "$BLUE" "$RESET"
-    printf '%b  │%b  %b[0]%b  Exit                                        %b│%b\n' "$BLUE" "$MAGENTA" "$RESET" "$WHITE" "$BLUE" "$RESET"
+    printf '%b  │  %b[1]%b  Install Snck Discord VPS Deploy Bot       %b│%b\n' "$BLUE" "$GREEN" "$WHITE" "$BLUE" "$RESET"
+    printf '%b  │  %b[2]%b  Update Bot                                 %b│%b\n' "$BLUE" "$CYAN" "$WHITE" "$BLUE" "$RESET"
+    printf '%b  │  %b[3]%b  Uninstall Bot                              %b│%b\n' "$BLUE" "$RED" "$WHITE" "$BLUE" "$RESET"
+    printf '%b  │  %b[4]%b  Refresh Live Status                         %b│%b\n' "$BLUE" "$YELLOW" "$WHITE" "$BLUE" "$RESET"
+    printf '%b  │  %b[0]%b  Exit                                        %b│%b\n' "$BLUE" "$MAGENTA" "$WHITE" "$BLUE" "$RESET"
     printf '%b  ╰──────────────────────────────────────────────────╯%b\n' "$BLUE" "$RESET"
     printf '\n%b  Select an option [1-4, 0]: %b' "$BOLD$WHITE" "$RESET"
-    IFS= read -r choice <&3 || true
-    printf '\n'
+    IFS= read -r choice <&3 || true; printf '\n'
     case "${choice:-}" in
       1) install_bot; return;;
       2) update_bot; return;;
