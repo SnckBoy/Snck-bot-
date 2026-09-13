@@ -3,7 +3,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-
+ICON = "https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main/assets/snck-logo.svg"
 FILES = [ROOT / "bot.py", ROOT / "launcher.py", ROOT / "snck_panel.py", ROOT / "snck_panel_v2.py", ROOT / "panel.py"]
 REPLACEMENTS = {
     "PapiaGamerz VMS": "Snck Discord VPS Deploy Bot",
@@ -20,6 +20,8 @@ def patch(path: Path) -> bool:
     original = text
     for old, new in REPLACEMENTS.items():
         text = text.replace(old, new)
+    if path.name == "bot.py":
+        text = text.replace("https://i.imgur.com/Tv3clt0.jpeg", ICON)
     if text != original:
         path.write_text(text, encoding="utf-8")
         return True
@@ -33,6 +35,8 @@ def main() -> None:
         values = {
             "BOT_NAME": "Snck Discord VPS Deploy Bot",
             "BOT_DEVELOPER": "Clark",
+            "BOT_ICON_URL": ICON,
+            "BOT_THUMBNAIL_URL": ICON,
         }
         found = set()
         out = []
