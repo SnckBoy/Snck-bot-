@@ -27,11 +27,12 @@ async def deploy_cmd(ctx):
 '''
 
 
-def replace_block(text, pattern, replacement, label):
-    m = re.search(pattern, text, re.S)
-    if not m:
-        raise SystemExit(f'Could not locate {label}')
-    return text[:m.start()] + replacement + '\n' + text[m.end():]
+def replace_once(text: str, old: str, new: str, label: str, required: bool = False) -> str:
+    if old not in text:
+        if required:
+            raise SystemExit(f'Could not locate {label}')
+        return text
+    return text.replace(old, new, 1)
 
 
 def patch_bot():
@@ -39,11 +40,9 @@ def patch_bot():
     if not p.exists():
         raise SystemExit('Missing bot.py')
     text = p.read_text(encoding='utf-8')
-    # The deploy command may be the final decorated function. Match either
-    # the next command/event decorator or the end of the file.
     pattern = r"@bot\.command\(name=['\"]deploy['\"]\).*?(?=\n@bot\.(?:command|event)\b|\Z)"
     if re.search(pattern, text, re.S):
-        text = replace_block(text, pattern, BOT_ROUTE, 'deploy command in bot.py')
+        text = re.sub(pattern, BOT_ROUTE.rstrip(), text, count=1, flags=re.S)
     else:
         raise SystemExit('Could not locate deploy command in bot.py')
     p.write_text(text, encoding='utf-8')
@@ -68,10 +67,19 @@ def patch_panel():
     if not p.exists():
         raise SystemExit('Missing snck_panel.py')
     text = p.read_text(encoding='utf-8')
-    old = "kvm_create(name,ram,cpu,disk,pw,storage=n['storage'],uri=n['url'] or '')"
-    new = "kvm_create(name,ram,cpu,disk,pw,image={'ubuntu:24.04':'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img'}.get(osver,'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img'),storage=n['storage'],uri=n['url'] or '')"
+
+    # Panel v2 stores the node connection field as `uri`, while the Discord
+    # database schema historically calls it `url`. Use either without raising
+    # KeyError, and keep deployment image selection deterministic.
+    old = "pw=secrets.token_urlsafe(12);vm_create=name,ram,cpu,disk,pw\n   from kvm import create as real_create;real_create(name,ram,cpu,disk,pw,storage=n['storage'],uri=n['url']);real_start= start;real_start(name,n['url'])"
+    new = "pw=secrets.token_urlsafe(12);node_uri=str(n['uri'] if 'uri' in n.keys() else (n['url'] if 'url' in n.keys() else '') or '');osver=request.form.get('os_version','ubuntu:24.04').strip() or 'ubuntu:24.04'\n   from kvm import create as real_create;real_create(name,ram,cpu,disk,pw,image={'ubuntu:20.04':'https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img','ubuntu:22.04':'https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img','ubuntu:24.04':'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img'}.get(osver,'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img'),storage=n['storage'],uri=node_uri);start(name,node_uri)"
     if old in text:
         text = text.replace(old, new, 1)
+    else:
+        # Handle the already-patched/simple variant as well.
+        text = text.replace("uri=n['url'] or ''", "uri=str(n['uri'] if 'uri' in n.keys() else (n['url'] if 'url' in n.keys() else '') or '')", 1)
+        text = text.replace("uri=n['url']", "uri=str(n['uri'] if 'uri' in n.keys() else (n['url'] if 'url' in n.keys() else '') or '')", 1)
+        text = text.replace("start(name,n['url'] or '')", "start(name,str(n['uri'] if 'uri' in n.keys() else (n['url'] if 'url' in n.keys() else '') or ''))", 1)
     p.write_text(text, encoding='utf-8')
 
 
@@ -84,8 +92,6 @@ def patch_panel_login():
     new = "with db(USERS) as c: r=c.execute('SELECT * FROM panel_users WHERE username=? AND active=1',(u,)).fetchone()\n  if r and secrets.compare_digest(h,r['password_hash']):"
     if old in text:
         text = text.replace(old, new, 1)
-    elif "SELECT * FROM panel_users WHERE username=? AND active=1" not in text:
-        raise SystemExit('Could not locate panel customer login handler')
     p.write_text(text, encoding='utf-8')
 
 
