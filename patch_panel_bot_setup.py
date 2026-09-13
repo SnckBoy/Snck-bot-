@@ -60,6 +60,11 @@ def bot():
         existing.setdefault('PREFIX', '!')
         env.write_text('\n'.join(f'{k}={v}' for k, v in existing.items()) + '\n')
         os.chmod(env, 0o600)
+        os.environ['DISCORD_TOKEN'] = token
+        os.environ['DISCORD_CLIENT_ID'] = client_id
+        os.environ['DISCORD_GUILD_ID'] = guild_id
+        if public_key:
+            os.environ['DISCORD_PUBLIC_KEY'] = public_key
         try:
             if os.getenv('SNCK_CODESPACE') == '1':
                 subprocess.run(['pkill', '-f', 'python.*launcher.py'], check=False,
