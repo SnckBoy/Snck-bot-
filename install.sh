@@ -4,7 +4,7 @@ REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
 APP_DIR="${SNCK_APP_DIR:-/opt/snck-bot}"
 PANEL_SERVICE="snck-kvm-panel"
 BOT_SERVICE="snck-discord-bot"
-VERSION="8.1.4"
+VERSION="8.1.5"
 E=$'\033'; R="${E}[0m"; B="${E}[1m"; C="${E}[38;5;51m"; P="${E}[38;5;141m"; G="${E}[38;5;82m"; Y="${E}[38;5;220m"; M="${E}[38;5;201m"; W="${E}[38;5;255m"
 [[ -r /dev/tty ]] || { echo "Interactive terminal required."; exit 1; }
 exec 3<>/dev/tty
@@ -63,7 +63,8 @@ EOF
 download_files(){
  local f
  for f in snck_panel_v2.py kvm.py bot.py launcher.py snck_panel_bridge.py requirements.txt patch_panel_bot_setup.py; do
-   curl -fsSL --retry 3 "$REPO_RAW/$f" -o "$APP_DIR/$f" || { fail "Download failed: $f"; return 1; }
+   info "Downloading $f..."
+   curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 "$REPO_RAW/$f" -o "$APP_DIR/$f" || { fail "Download failed: $f"; return 1; }
  done
  cp "$APP_DIR/snck_panel_v2.py" "$APP_DIR/snck_panel.py"
 }
@@ -143,24 +144,27 @@ update(){
  cd "$APP_DIR"
  info "Updating Python dependencies..."
  "$APP_DIR/venv/bin/pip" install -r requirements.txt || { fail "Dependency update failed"; return 1; }
+ info "Applying panel integration..."
  apply_panel_patch || return 1
  info "Checking Python files..."
  "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py bot.py launcher.py snck_panel_bridge.py patch_panel_bot_setup.py || { fail "Python syntax check failed"; return 1; }
  [[ -f "$APP_DIR/.env" ]] || write_env
  systemctl daemon-reload
  systemctl enable "$PANEL_SERVICE" >/dev/null 2>&1 || true
+ info "Restarting Snck panel..."
  systemctl restart "$PANEL_SERVICE" || { journalctl -u "$PANEL_SERVICE" -n 60 --no-pager; fail "Panel restart failed"; return 1; }
  if grep -q '^DISCORD_TOKEN=' "$APP_DIR/.env" 2>/dev/null; then
    systemctl enable "$BOT_SERVICE" >/dev/null 2>&1 || true
-   systemctl restart "$BOT_SERVICE" || true
+   info "Restarting Discord bot..."
+   systemctl restart "$BOT_SERVICE" || { journalctl -u "$BOT_SERVICE" -n 60 --no-pager; fail "Bot restart failed"; return 1; }
  fi
  sleep 2
  ok "Snck update completed successfully."
  printf '  Panel: %s\n' "$(state "$PANEL_SERVICE")"
  printf '  Bot  : %s\n' "$(state "$BOT_SERVICE")"
- printf '  Version: %s\n\n' "$VERSION"
- printf '%bPress Enter to return to the menu...%b ' "$C" "$R"
- IFS= read -r _ <&3 || true
+ printf '  Version: %s\n' "$VERSION"
+ printf '%bReturning to menu...%b\n' "$C" "$R"
+ sleep 1
 }
 check(){
  root
