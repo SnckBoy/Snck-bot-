@@ -10,7 +10,7 @@ import re
 ROOT = Path(__file__).resolve().parent
 TARGET = ROOT / "snck_panel.py"
 
-NEW_ROUTE = r'''@app.route('/bot',methods=['GET','POST'])
+NEW_ROUTE = r"""@app.route('/bot',methods=['GET','POST'])
 @admin_required
 def bot():
     """Configure, verify and start the Discord bot from the panel."""
@@ -115,7 +115,7 @@ def bot():
 <div class="card"><form method="post"><label>Bot Token</label><input type="password" name="token" autocomplete="new-password" placeholder="Paste your Discord bot token" required><label>Client / Application ID (optional)</label><input name="client_id" inputmode="numeric" value="{html.escape(client_id)}" placeholder="Auto-detected from token"><label>Guild / Server ID (optional)</label><input name="guild_id" inputmode="numeric" value="{html.escape(guild_id)}" placeholder="Your Discord server ID"><label>Public Key (optional)</label><input type="password" name="public_key" autocomplete="off" placeholder="Only needed for interaction webhooks"><div class="actions"><button>Verify and Start Bot</button></div></form><p class="muted small">The token is validated directly with Discord, stored only in the VPS .env file with restricted permissions, and never displayed back in the panel.</p>{invite_html}</div>'''
     return render_template_string(LAY, title='Discord Bot', body=body)
 
-'''
+"""
 
 
 def patch():
@@ -123,7 +123,6 @@ def patch():
         raise SystemExit(f"Missing target: {TARGET}")
     text = TARGET.read_text()
 
-    # The canonical panel has used several harmless import-spacing variants.
     if 'import requests' not in text:
         lines = text.splitlines()
         insert_at = 0
@@ -133,14 +132,12 @@ def patch():
         lines.insert(insert_at, 'import requests')
         text = '\n'.join(lines) + ('\n' if text.endswith('\n') else '')
 
-    # Match the complete /bot route regardless of spaces/newlines in decorators.
     pattern = re.compile(
         r"@app\.route\(\s*['\"]/?bot['\"][^\n]*\)\s*\n.*?(?=\n@app\.route\(\s*['\"]/?license-info['\"])",
         re.S,
     )
     match = pattern.search(text)
     if not match:
-        # Fallback: locate the route and the next license-info route by raw positions.
         start = re.search(r"@app\.route\(\s*['\"]/?bot['\"]", text)
         end = re.search(r"@app\.route\(\s*['\"]/?license-info['\"]", text)
         if not start or not end or start.start() >= end.start():
