@@ -1,0 +1,86 @@
+name: Apply Premium Panel Animation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-premium-animation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-panel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch canonical panel animation layer
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('snck_panel_v2.py')
+          s = p.read_text(encoding='utf-8')
+
+          animation = r'''
+/* SNCK PREMIUM MOTION LAYER */
+@keyframes snck-page-in{from{opacity:0;transform:translateY(14px);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
+@keyframes snck-nav-in{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:none}}
+@keyframes snck-card-in{from{opacity:0;transform:translateY(18px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes snck-float{0%,100%{transform:translate3d(0,0,0)}50%{transform:translate3d(0,-4px,0)}}
+@keyframes snck-glow{0%,100%{box-shadow:0 8px 16px rgba(0,0,0,.08)}50%{box-shadow:0 14px 34px rgba(139,92,246,.18)}}
+@keyframes snck-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+@keyframes snck-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes snck-spin{to{transform:rotate(360deg)}}
+body{animation:snck-page-in .45s ease both;background-size:140% 140%;transition:background-position .8s ease}
+.wrap{animation:snck-page-in .5s ease both}
+.nav{animation:snck-nav-in .5s cubic-bezier(.2,.8,.2,1) both}
+.hero{animation:snck-page-in .55s .04s ease both}
+.grid>.card{animation:snck-card-in .5s cubic-bezier(.2,.8,.2,1) both}
+.grid>.card:nth-child(2){animation-delay:.05s}.grid>.card:nth-child(3){animation-delay:.1s}.grid>.card:nth-child(4){animation-delay:.15s}.grid>.card:nth-child(5){animation-delay:.2s}.grid>.card:nth-child(6){animation-delay:.25s}
+.card{will-change:transform;transform-origin:center;}
+.card:hover{transform:translateY(-5px) scale(1.008);}
+.stat:hover{animation:snck-float 2.2s ease-in-out infinite}
+button{position:relative;overflow:hidden;transition:transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .25s ease,filter .2s ease}
+button:active{transform:translateY(1px) scale(.985)}
+button:hover{filter:saturate(1.08)}
+button::after{content:"";position:absolute;inset:0;transform:translateX(-120%);background:linear-gradient(110deg,transparent 25%,rgba(255,255,255,.32) 50%,transparent 75%);background-size:200% 100%;transition:transform .55s ease}
+button:hover::after{transform:translateX(120%)}
+.links a{transition:transform .2s ease,background .2s ease,color .2s ease,box-shadow .2s ease}
+.links a:hover{transform:translateY(-2px);box-shadow:0 7px 18px rgba(139,92,246,.1)}
+input,select{transition:border-color .2s ease,box-shadow .2s ease,transform .2s ease,background .2s ease}
+input:focus,select:focus{transform:translateY(-1px)}
+.flash{animation:snck-card-in .4s ease both}
+.badge,.pill{transition:transform .2s ease,box-shadow .2s ease}
+.badge:hover,.pill:hover{transform:translateY(-1px);box-shadow:0 6px 14px rgba(139,92,246,.1)}
+.table tr{transition:background .2s ease,transform .2s ease}
+.table tr:hover{background:rgba(167,139,250,.08)}
+.value{transition:transform .25s ease}
+.card:hover .value{transform:translateX(2px)}
+.login .card{animation:snck-card-in .6s cubic-bezier(.2,.8,.2,1) both;animation-name:snck-card-in,snck-glow;animation-duration:.6s,3s;animation-delay:0s,.7s;animation-iteration-count:1,infinite}
+.status,.ok,.bad,.warn{transition:opacity .25s ease,transform .25s ease}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+'''
+
+          marker = '/* SNCK PREMIUM MOTION LAYER */'
+          if marker not in s:
+              needle = '\n</style>'''
+              if needle not in s:
+                  raise SystemExit('Could not locate panel CSS closing marker')
+              s = s.replace(needle, '\n' + animation + needle, 1)
+              p.write_text(s, encoding='utf-8')
+
+      - name: Validate Python
+        run: python3 -m py_compile snck_panel_v2.py
+
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add snck_panel_v2.py
+          git diff --cached --quiet && exit 0
+          git commit -m 'Add smooth premium animations to Snck panel'
+          git push
