@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Patch the canonical Snck panel with a production Discord bot setup page."""
+"""Patch the canonical Snck panel with a production Discord bot setup page.
+
+The patch is intentionally tolerant of formatting differences in the generated
+panel so installer updates do not fail just because route/import spacing changed.
+"""
 from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parent
 TARGET = ROOT / "snck_panel.py"
-START = "@app.route('/bot',methods=['GET','POST'])"
-END = "@app.route('/license-info')"
 
 NEW_ROUTE = r'''@app.route('/bot',methods=['GET','POST'])
 @admin_required
@@ -23,7 +25,7 @@ def bot():
         try:
             response = requests.get(
                 'https://discord.com/api/v10/oauth2/applications/@me',
-                headers={'Authorization': f'Bot {token}', 'User-Agent': 'SnckBot/8.0'},
+                headers={'Authorization': f'Bot {token}', 'User-Agent': 'SnckBot/8.1'},
                 timeout=15,
             )
             if response.status_code in (401, 403):
@@ -111,24 +113,45 @@ def bot():
     body = f'''<div class="hero"><div class="title">Discord Bot</div><p class="muted">Connect, verify and start your Snck Discord VPS bot.</p></div>
 <div class="grid"><div class="card stat"><div class="muted">Connection</div><div class="value {status_class}">{bot_status}</div></div><div class="card stat"><div class="muted">Application ID</div><div class="value">{html.escape(client_id or 'Not set')}</div></div></div>
 <div class="card"><form method="post"><label>Bot Token</label><input type="password" name="token" autocomplete="new-password" placeholder="Paste your Discord bot token" required><label>Client / Application ID (optional)</label><input name="client_id" inputmode="numeric" value="{html.escape(client_id)}" placeholder="Auto-detected from token"><label>Guild / Server ID (optional)</label><input name="guild_id" inputmode="numeric" value="{html.escape(guild_id)}" placeholder="Your Discord server ID"><label>Public Key (optional)</label><input type="password" name="public_key" autocomplete="off" placeholder="Only needed for interaction webhooks"><div class="actions"><button>Verify and Start Bot</button></div></form><p class="muted small">The token is validated directly with Discord, stored only in the VPS .env file with restricted permissions, and never displayed back in the panel.</p>{invite_html}</div>'''
-    return render_template_string(LAYOUT, title='Discord Bot', body=body)
+    return render_template_string(LAY, title='Discord Bot', body=body)
 
 '''
+
 
 def patch():
     if not TARGET.exists():
         raise SystemExit(f"Missing target: {TARGET}")
     text = TARGET.read_text()
+
+    # The canonical panel has used several harmless import-spacing variants.
     if 'import requests' not in text:
-        text = text.replace('import os, sqlite3, hashlib, secrets, html, subprocess, time\n',
-                            'import os, sqlite3, hashlib, secrets, html, subprocess, time\nimport requests\n', 1)
-    pattern = re.compile(re.escape(START) + r'.*?' + re.escape(END), re.S)
-    replacement = NEW_ROUTE + END + '\n'
-    if not pattern.search(text):
-        raise SystemExit('Could not locate the existing /bot route.')
-    text = pattern.sub(replacement, text, count=1)
+        lines = text.splitlines()
+        insert_at = 0
+        for i, line in enumerate(lines):
+            if line.startswith('import ') or line.startswith('from '):
+                insert_at = i + 1
+        lines.insert(insert_at, 'import requests')
+        text = '\n'.join(lines) + ('\n' if text.endswith('\n') else '')
+
+    # Match the complete /bot route regardless of spaces/newlines in decorators.
+    pattern = re.compile(
+        r"@app\.route\(\s*['\"]/?bot['\"][^\n]*\)\s*\n.*?(?=\n@app\.route\(\s*['\"]/?license-info['\"])",
+        re.S,
+    )
+    match = pattern.search(text)
+    if not match:
+        # Fallback: locate the route and the next license-info route by raw positions.
+        start = re.search(r"@app\.route\(\s*['\"]/?bot['\"]", text)
+        end = re.search(r"@app\.route\(\s*['\"]/?license-info['\"]", text)
+        if not start or not end or start.start() >= end.start():
+            raise SystemExit('Could not locate /bot and /license-info routes in canonical panel.')
+        text = text[:start.start()] + NEW_ROUTE + '\n' + text[end.start():]
+    else:
+        text = text[:match.start()] + NEW_ROUTE + text[match.end():]
+
     TARGET.write_text(text)
     print('Snck Discord bot setup patch applied.')
+
 
 if __name__ == '__main__':
     patch()
