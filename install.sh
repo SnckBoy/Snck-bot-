@@ -4,7 +4,7 @@ REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
 APP_DIR="${SNCK_APP_DIR:-/opt/snck-bot}"
 PANEL_SERVICE="snck-kvm-panel"
 BOT_SERVICE="snck-discord-bot"
-VERSION="8.2.2"
+VERSION="8.2.3"
 E=$'\033'; R="${E}[0m"; B="${E}[1m"; C="${E}[38;5;51m"; P="${E}[38;5;141m"; G="${E}[38;5;82m"; Y="${E}[38;5;220m"; M="${E}[38;5;201m"; W="${E}[38;5;255m"
 [[ -r /dev/tty ]] || { echo "Interactive terminal required."; exit 1; }
 exec 3<>/dev/tty
@@ -13,7 +13,7 @@ info(){ printf '%b[INFO]%b %s\n' "$C" "$R" "$*"; }
 fail(){ printf '%b[FAIL]%b %s\n' "$M" "$R" "$*" >&2; return 1; }
 state(){ systemctl is-active --quiet "$1" 2>/dev/null && echo ONLINE || systemctl is-enabled --quiet "$1" 2>/dev/null && echo OFFLINE || echo NOT-INSTALLED; }
 kvm(){ [[ -e /dev/kvm ]] && echo ENABLED || echo UNAVAILABLE; }
-installed(){ [[ -f "$APP_DIR/snck_panel.py" && -f "$APP_DIR/kvm.py" && -f "$APP_DIR/kvm_discord_bridge.py" && -f "$APP_DIR/patch_kvm_runtime.py" && -d "$APP_DIR/venv" ]]; }
+installed(){ [[ -f "$APP_DIR/snck_panel.py" && -f "$APP_DIR/kvm.py" && -f "$APP_DIR/kvm_discord_bridge.py" && -f "$APP_DIR/patch_kvm_runtime.py" && -f "$APP_DIR/branding_patch.py" && -d "$APP_DIR/venv" ]]; }
 menu(){
  clear 2>/dev/null || true
  printf '\n%b╭──────────────────────────────────────────────────────╮%b\n' "$P" "$R"
@@ -39,7 +39,7 @@ menu(){
 root(){ [[ $(id -u) -eq 0 ]] || exec sudo -E bash "$0" "$@"; }
 write_env(){
  mkdir -p "$APP_DIR"
- local secret existing_token existing_client existing_guild existing_public
+ local secret existing_token existing_client existing_guild existing_public old_secret
  secret="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
  existing_token=""; existing_client=""; existing_guild=""; existing_public=""
  if [[ -f "$APP_DIR/.env" ]]; then
@@ -54,6 +54,9 @@ write_env(){
 SNCK_PANEL_PORT=5000
 SNCK_PANEL_SECRET=${secret}
 BOT_NAME=Snck Discord VPS Deploy Bot
+BOT_DEVELOPER=Clark
+BOT_ICON_URL=https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main/assets/snck-logo.svg
+BOT_THUMBNAIL_URL=https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main/assets/snck-logo.svg
 PREFIX=!
 EOF
  [[ -n "$existing_token" ]] && printf 'DISCORD_TOKEN=%s\n' "$existing_token" >> "$APP_DIR/.env"
@@ -64,7 +67,7 @@ EOF
 }
 download_files(){
  local f
- for f in snck_panel_v2.py kvm.py kvm_discord_bridge.py bot.py launcher.py panel_bridge.py snck_panel_bridge.py requirements.txt patch_panel_bot_setup.py patch_kvm_runtime.py; do
+ for f in snck_panel_v2.py kvm.py kvm_discord_bridge.py bot.py launcher.py panel_bridge.py snck_panel_bridge.py requirements.txt patch_panel_bot_setup.py patch_kvm_runtime.py branding_patch.py; do
   info "Downloading $f..."
   curl -fsSL --retry 3 --connect-timeout 15 --max-time 180 "$REPO_RAW/$f" -o "$APP_DIR/$f" || { fail "Download failed: $f"; return 1; }
  done
@@ -73,6 +76,7 @@ download_files(){
 apply_patches(){
  "$APP_DIR/venv/bin/python" "$APP_DIR/patch_panel_bot_setup.py" || { fail "Panel bot setup patch failed"; return 1; }
  "$APP_DIR/venv/bin/python" "$APP_DIR/patch_kvm_runtime.py" || { fail "KVM runtime repair failed"; return 1; }
+ "$APP_DIR/venv/bin/python" "$APP_DIR/branding_patch.py" || { fail "Snck branding patch failed"; return 1; }
 }
 setup_kvm_network(){
  info "Preparing libvirt default network..."
@@ -130,7 +134,7 @@ install(){
  "$APP_DIR/venv/bin/pip" install -r requirements.txt || { fail "Python dependencies failed"; return 1; }
  setup_kvm_network || return 1
  apply_patches || return 1
- "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py kvm_discord_bridge.py bot.py launcher.py panel_bridge.py snck_panel_bridge.py patch_panel_bot_setup.py patch_kvm_runtime.py || { fail "Python syntax check failed"; return 1; }
+ "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py kvm_discord_bridge.py bot.py launcher.py panel_bridge.py snck_panel_bridge.py patch_panel_bot_setup.py patch_kvm_runtime.py branding_patch.py || { fail "Python syntax check failed"; return 1; }
  write_env; write_services
  systemctl restart "$PANEL_SERVICE"; sleep 2
  systemctl is-active --quiet "$PANEL_SERVICE" || { journalctl -u "$PANEL_SERVICE" -n 80 --no-pager; fail "Panel failed to start"; return 1; }
@@ -148,8 +152,8 @@ update(){
  download_files || return 1; cd "$APP_DIR"
  info "Updating Python dependencies..."; "$APP_DIR/venv/bin/pip" install -r requirements.txt || { fail "Dependency update failed"; return 1; }
  setup_kvm_network || return 1
- info "Applying runtime repairs..."; apply_patches || return 1
- info "Checking Python files..."; "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py kvm_discord_bridge.py bot.py launcher.py panel_bridge.py snck_panel_bridge.py patch_panel_bot_setup.py patch_kvm_runtime.py || { fail "Python syntax check failed"; return 1; }
+ info "Applying runtime repairs and branding..."; apply_patches || return 1
+ info "Checking Python files..."; "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py kvm_discord_bridge.py bot.py launcher.py panel_bridge.py snck_panel_bridge.py patch_panel_bot_setup.py patch_kvm_runtime.py branding_patch.py || { fail "Python syntax check failed"; return 1; }
  [[ -f "$APP_DIR/.env" ]] || write_env; write_services
  systemctl restart "$PANEL_SERVICE" || { journalctl -u "$PANEL_SERVICE" -n 80 --no-pager; fail "Panel restart failed"; return 1; }
  if grep -q '^DISCORD_TOKEN=' "$APP_DIR/.env" 2>/dev/null; then systemctl restart "$BOT_SERVICE" || { journalctl -u "$BOT_SERVICE" -n 80 --no-pager; fail "Bot restart failed"; return 1; }; fi
