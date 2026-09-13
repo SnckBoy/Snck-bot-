@@ -4,7 +4,7 @@ REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
 APP_DIR="${SNCK_APP_DIR:-/opt/snck-bot}"
 PANEL_SERVICE="snck-kvm-panel"
 BOT_SERVICE="snck-discord-bot"
-VERSION="8.1.3"
+VERSION="8.1.4"
 E=$'\033'; R="${E}[0m"; B="${E}[1m"; C="${E}[38;5;51m"; P="${E}[38;5;141m"; G="${E}[38;5;82m"; Y="${E}[38;5;220m"; M="${E}[38;5;201m"; W="${E}[38;5;255m"
 [[ -r /dev/tty ]] || { echo "Interactive terminal required."; exit 1; }
 exec 3<>/dev/tty
@@ -127,8 +127,13 @@ EOF
 }
 update(){
  root
- info "Starting Snck update..."
+ printf '\n%b[ UPDATE ]%b Starting Snck Panel + Bot update...\n' "$C" "$R"
  mkdir -p "$APP_DIR"
+ if ! command -v python3 >/dev/null 2>&1; then
+   info "Python is missing; installing required runtime..."
+   apt-get update -y || { fail "apt update failed"; return 1; }
+   DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv python3-pip curl ca-certificates || { fail "Runtime installation failed"; return 1; }
+ fi
  if [[ ! -d "$APP_DIR/venv" ]]; then
    info "Creating Python environment..."
    python3 -m venv "$APP_DIR/venv" || { fail "Could not create Python environment"; return 1; }
@@ -136,8 +141,10 @@ update(){
  info "Downloading latest panel, KVM and Discord files..."
  download_files || return 1
  cd "$APP_DIR"
+ info "Updating Python dependencies..."
  "$APP_DIR/venv/bin/pip" install -r requirements.txt || { fail "Dependency update failed"; return 1; }
  apply_panel_patch || return 1
+ info "Checking Python files..."
  "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py bot.py launcher.py snck_panel_bridge.py patch_panel_bot_setup.py || { fail "Python syntax check failed"; return 1; }
  [[ -f "$APP_DIR/.env" ]] || write_env
  systemctl daemon-reload
@@ -152,6 +159,8 @@ update(){
  printf '  Panel: %s\n' "$(state "$PANEL_SERVICE")"
  printf '  Bot  : %s\n' "$(state "$BOT_SERVICE")"
  printf '  Version: %s\n\n' "$VERSION"
+ printf '%bPress Enter to return to the menu...%b ' "$C" "$R"
+ IFS= read -r _ <&3 || true
 }
 check(){
  root
