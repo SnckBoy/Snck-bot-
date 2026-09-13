@@ -4,7 +4,7 @@ REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
 APP_DIR="${SNCK_APP_DIR:-/opt/snck-bot}"
 PANEL_SERVICE="snck-kvm-panel"
 BOT_SERVICE="snck-discord-bot"
-VERSION="8.1.1"
+VERSION="8.1.2"
 E=$'\033'; R="${E}[0m"; B="${E}[1m"; C="${E}[38;5;51m"; P="${E}[38;5;141m"; G="${E}[38;5;82m"; Y="${E}[38;5;220m"; M="${E}[38;5;201m"; W="${E}[38;5;255m"
 [[ -r /dev/tty ]] || { echo "Interactive terminal required."; exit 1; }
 exec 3<>/dev/tty
@@ -39,10 +39,15 @@ menu(){
 root(){ [[ $(id -u) -eq 0 ]] || exec sudo -E bash "$0" "$@"; }
 write_env(){
  mkdir -p "$APP_DIR"
- local secret existing_token
+ local secret existing_token existing_client existing_guild existing_public
  secret="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
- existing_token=""
- [[ -f "$APP_DIR/.env" ]] && existing_token="$(grep '^DISCORD_TOKEN=' "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true)"
+ existing_token=""; existing_client=""; existing_guild=""; existing_public=""
+ if [[ -f "$APP_DIR/.env" ]]; then
+   existing_token="$(grep '^DISCORD_TOKEN=' "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true)"
+   existing_client="$(grep '^DISCORD_CLIENT_ID=' "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true)"
+   existing_guild="$(grep '^DISCORD_GUILD_ID=' "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true)"
+   existing_public="$(grep '^DISCORD_PUBLIC_KEY=' "$APP_DIR/.env" | head -n1 | cut -d= -f2- || true)"
+ fi
  cat > "$APP_DIR/.env" <<EOF
 SNCK_PANEL_PORT=5000
 SNCK_PANEL_SECRET=${secret}
@@ -50,6 +55,9 @@ BOT_NAME=Snck Discord VPS Deploy Bot
 PREFIX=!
 EOF
  [[ -n "$existing_token" ]] && printf 'DISCORD_TOKEN=%s\n' "$existing_token" >> "$APP_DIR/.env"
+ [[ -n "$existing_client" ]] && printf 'DISCORD_CLIENT_ID=%s\n' "$existing_client" >> "$APP_DIR/.env"
+ [[ -n "$existing_guild" ]] && printf 'DISCORD_GUILD_ID=%s\n' "$existing_guild" >> "$APP_DIR/.env"
+ [[ -n "$existing_public" ]] && printf 'DISCORD_PUBLIC_KEY=%s\n' "$existing_public" >> "$APP_DIR/.env"
  chmod 600 "$APP_DIR/.env"
 }
 download_files(){
