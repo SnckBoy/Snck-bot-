@@ -13,7 +13,7 @@ TARGET = ROOT / "snck_panel.py"
 NEW_ROUTE = r"""@app.route('/bot',methods=['GET','POST'])
 @admin_required
 def bot():
-    """Configure, verify and start the Discord bot from the panel."""
+    'Configure, verify and start the Discord bot from the panel.'
     if request.method == 'POST':
         token = request.form.get('token', '').strip()
         client_id = request.form.get('client_id', '').strip()
