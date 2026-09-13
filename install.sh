@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 REPO=https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main
-APP=${SNCK_APP_DIR:-/opt/snck-bot}; PS=snck-kvm-panel; BS=snck-discord-bot; V=8.2.9
+APP=${SNCK_APP_DIR:-/opt/snck-bot}; PS=snck-kvm-panel; BS=snck-discord-bot; V=8.3.0
 C=$'\033[38;5;51m';P=$'\033[38;5;141m';G=$'\033[38;5;82m';Y=$'\033[38;5;220m';R=$'\033[0m'
 [ -r /dev/tty ] || { echo 'Interactive terminal required.'; exit 1; }
 exec 3<>/dev/tty
@@ -97,9 +97,31 @@ prepare(){
   env || return 1
   svc || return 1
 }
-install(){ echo 'Installing Snck Panel + Bot + KVM...'; prepare || { echo 'INSTALL FAILED'; return; }; systemctl restart "$PS" || { echo 'Panel failed to start'; journalctl -u "$PS" -n 50 --no-pager; return; }; sleep 2; [ "$(st "$PS")" = ONLINE ] || { journalctl -u "$PS" -n 50 --no-pager; return; }; if grep -q '^DISCORD_TOKEN=' "$APP/.env" 2>/dev/null; then systemctl restart "$BS" || :; fi; echo 'INSTALL COMPLETE'; }
-update(){ echo 'Updating Snck Panel + Bot...'; prepare || { echo 'UPDATE FAILED'; return; }; systemctl restart "$PS" || return; if grep -q '^DISCORD_TOKEN=' "$APP/.env" 2>/dev/null; then systemctl restart "$BS" || :; fi; echo "UPDATE COMPLETE - $V"; }
-check(){ root; echo "Panel: $(st "$PS")"; echo "Bot: $(st "$BS")"; echo "KVM: $([ -e /dev/kvm ] && echo ENABLED || echo UNAVAILABLE)"; echo "Tools: $(command -v virsh >/dev/null && command -v virt-install >/dev/null && command -v cloud-localds >/dev/null && command -v qemu-img >/dev/null && echo READY || echo MISSING)"; command -v virsh >/dev/null 2>&1 && virsh list --all || :; printf 'Press Enter... '; read -r _ <&3 || :; }
+install(){
+  echo 'Installing Snck Panel + Bot + KVM...'
+  prepare || { echo 'INSTALL FAILED'; return 1; }
+  systemctl restart "$PS" || { echo 'Panel failed to start'; journalctl -u "$PS" -n 50 --no-pager; return 1; }
+  sleep 2
+  [ "$(st "$PS")" = ONLINE ] || { journalctl -u "$PS" -n 50 --no-pager; return 1; }
+  if grep -q '^DISCORD_TOKEN=' "$APP/.env" 2>/dev/null; then systemctl restart "$BS" || :; fi
+  echo 'INSTALL COMPLETE'
+}
+update(){
+  echo 'Updating Snck Panel + Bot...'
+  prepare || { echo 'UPDATE FAILED'; return 1; }
+  systemctl restart "$PS" || return 1
+  if grep -q '^DISCORD_TOKEN=' "$APP/.env" 2>/dev/null; then systemctl restart "$BS" || :; fi
+  echo "UPDATE COMPLETE - $V"
+}
+check(){
+  root
+  echo "Panel: $(st "$PS")"
+  echo "Bot: $(st "$BS")"
+  echo "KVM: $([ -e /dev/kvm ] && echo ENABLED || echo UNAVAILABLE)"
+  echo "Tools: $(command -v virsh >/dev/null && command -v virt-install >/dev/null && command -v cloud-localds >/dev/null && command -v qemu-img >/dev/null && echo READY || echo MISSING)"
+  command -v virsh >/dev/null 2>&1 && virsh list --all || :
+  printf 'Press Enter... '; read -r _ <&3 || :
+}
 restart(){ root; systemctl restart "$PS" 2>/dev/null || :; systemctl restart "$BS" 2>/dev/null || :; echo 'Services restarted.'; }
 uninstall(){
   root
@@ -108,23 +130,26 @@ uninstall(){
   echo 'Removing Snck Panel + Bot...'
   systemctl stop "$PS" "$BS" 2>/dev/null || true
   systemctl disable "$PS" "$BS" 2>/dev/null || true
-  systemctl mask "$PS" "$BS" 2>/dev/null || true
-  rm -f "/etc/systemd/system/$PS.service" "/etc/systemd/system/$BS.service" "/etc/systemd/system/multi-user.target.wants/$PS.service" "/etc/systemd/system/multi-user.target.wants/$BS.service"
   systemctl unmask "$PS" "$BS" 2>/dev/null || true
+  rm -f "/etc/systemd/system/$PS.service" "/etc/systemd/system/$BS.service" "/etc/systemd/system/multi-user.target.wants/$PS.service" "/etc/systemd/system/multi-user.target.wants/$BS.service"
   systemctl daemon-reload
   systemctl reset-failed "$PS" "$BS" 2>/dev/null || true
-  pkill -TERM -f "$APP/.*python" 2>/dev/null || true
-  sleep 1
-  pkill -KILL -f "$APP/.*python" 2>/dev/null || true
   rm -rf "$APP"
   echo 'SNCK PANEL + BOT UNINSTALLED SUCCESSFULLY'
   echo 'Uninstall complete. Returning to shell.'
-  exec 3>&-
-  exit 0
+  return 0
 }
 while :; do
   clear 2>/dev/null || :
   printf '\n%bSNCK DISCORD VPS DEPLOY BOT + KVM PANEL%b\n%bLIVE STATUS%b v%s\nPanel: %s | Bot: %s | KVM: %s\n\n[1] Install / Repair\n[2] Update Panel + Bot\n[3] Check VPS / KVM Status\n[4] Restart Panel and Bot\n[5] Uninstall Snck Panel + Bot\n[0] Exit\n\nSelect an option [0-5]: ' "$P" "$R" "$C" "$R" "$V" "$(st "$PS")" "$(st "$BS")" "$([ -e /dev/kvm ] && echo ENABLED || echo UNAVAILABLE)"
   read -r n <&3 || n=''
-  case $n in 1) install;; 2) update;; 3) check;; 4) restart;; 5) uninstall;; 0) exit 0;; *) echo 'Invalid option.'; sleep 1;; esac
+  case $n in
+    1) install;;
+    2) update;;
+    3) check;;
+    4) restart;;
+    5) uninstall; exec 3>&-; exit 0;;
+    0) exec 3>&-; exit 0;;
+    *) echo 'Invalid option.'; sleep 1;;
+  esac
 done
