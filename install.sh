@@ -4,16 +4,16 @@ REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
 APP_DIR="${SNCK_APP_DIR:-/opt/snck-bot}"
 PANEL_SERVICE="snck-kvm-panel"
 BOT_SERVICE="snck-discord-bot"
-VERSION="8.1.2"
+VERSION="8.1.3"
 E=$'\033'; R="${E}[0m"; B="${E}[1m"; C="${E}[38;5;51m"; P="${E}[38;5;141m"; G="${E}[38;5;82m"; Y="${E}[38;5;220m"; M="${E}[38;5;201m"; W="${E}[38;5;255m"
 [[ -r /dev/tty ]] || { echo "Interactive terminal required."; exit 1; }
 exec 3<>/dev/tty
 ok(){ printf '%b[ OK ]%b %s\n' "$G" "$R" "$*"; }
 info(){ printf '%b[INFO]%b %s\n' "$C" "$R" "$*"; }
-fail(){ printf '%b[FAIL]%b %s\n' "$M" "$R" "$*" >&2; exit 1; }
+fail(){ printf '%b[FAIL]%b %s\n' "$M" "$R" "$*" >&2; return 1; }
 state(){ systemctl is-active --quiet "$1" 2>/dev/null && echo ONLINE || systemctl is-enabled --quiet "$1" 2>/dev/null && echo OFFLINE || echo NOT-INSTALLED; }
 kvm(){ [[ -e /dev/kvm ]] && echo ENABLED || echo UNAVAILABLE; }
-installed(){ [[ -f "$APP_DIR/snck_panel.py" && -f "$APP_DIR/kvm.py" && -f "$APP_DIR/patch_panel_bot_setup.py" ]]; }
+installed(){ [[ -f "$APP_DIR/snck_panel.py" && -f "$APP_DIR/kvm.py" ]]; }
 menu(){
  clear 2>/dev/null || true
  printf '\n%b╭──────────────────────────────────────────────────────╮%b\n' "$P" "$R"
@@ -63,28 +63,28 @@ EOF
 download_files(){
  local f
  for f in snck_panel_v2.py kvm.py bot.py launcher.py snck_panel_bridge.py requirements.txt patch_panel_bot_setup.py; do
-   curl -fsSL --retry 3 "$REPO_RAW/$f" -o "$APP_DIR/$f" || fail "Download failed: $f"
+   curl -fsSL --retry 3 "$REPO_RAW/$f" -o "$APP_DIR/$f" || { fail "Download failed: $f"; return 1; }
  done
  cp "$APP_DIR/snck_panel_v2.py" "$APP_DIR/snck_panel.py"
 }
 apply_panel_patch(){
- "$APP_DIR/venv/bin/python" "$APP_DIR/patch_panel_bot_setup.py" || fail "Panel bot setup patch failed"
+ "$APP_DIR/venv/bin/python" "$APP_DIR/patch_panel_bot_setup.py" || { fail "Panel bot setup patch failed"; return 1; }
 }
 install(){
  root
  info "Installing Ubuntu/Debian dependencies..."
- apt-get update -y
- DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv python3-pip curl ca-certificates qemu-kvm qemu-utils libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-clients virtinst cloud-image-utils bridge-utils openssh-client || fail "System packages failed"
+ apt-get update -y || { fail "apt update failed"; return 1; }
+ DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv python3-pip curl ca-certificates qemu-kvm qemu-utils libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-clients virtinst cloud-image-utils bridge-utils openssh-client || { fail "System packages failed"; return 1; }
  systemctl enable --now libvirtd 2>/dev/null || systemctl enable --now libvirt 2>/dev/null || true
  mkdir -p "$APP_DIR"
  info "Downloading Snck application..."
- download_files
+ download_files || return 1
  cd "$APP_DIR"
  [[ -d venv ]] || python3 -m venv venv
- "$APP_DIR/venv/bin/pip" install --upgrade pip >/dev/null || fail "pip upgrade failed"
- "$APP_DIR/venv/bin/pip" install -r requirements.txt || fail "Python dependencies failed"
- apply_panel_patch
- "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py bot.py launcher.py snck_panel_bridge.py patch_panel_bot_setup.py || fail "Python syntax check failed"
+ "$APP_DIR/venv/bin/pip" install --upgrade pip >/dev/null || { fail "pip upgrade failed"; return 1; }
+ "$APP_DIR/venv/bin/pip" install -r requirements.txt || { fail "Python dependencies failed"; return 1; }
+ apply_panel_patch || return 1
+ "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py bot.py launcher.py snck_panel_bridge.py patch_panel_bot_setup.py || { fail "Python syntax check failed"; return 1; }
  write_env
  cat > "/etc/systemd/system/$PANEL_SERVICE.service" <<EOF
 [Unit]
@@ -120,25 +120,38 @@ EOF
  systemctl enable "$PANEL_SERVICE" "$BOT_SERVICE" >/dev/null
  systemctl restart "$PANEL_SERVICE"
  sleep 2
- if ! systemctl is-active --quiet "$PANEL_SERVICE"; then journalctl -u "$PANEL_SERVICE" -n 80 --no-pager; fail "Panel failed to start"; fi
+ if ! systemctl is-active --quiet "$PANEL_SERVICE"; then journalctl -u "$PANEL_SERVICE" -n 80 --no-pager; fail "Panel failed to start"; return 1; fi
  ok "Snck KVM Panel is ONLINE"
  local ip; ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
  printf '\n%bINSTALL COMPLETE%b\nPanel: http://%s:5000\nLicense: %s\nAdmin: create on first login\nDiscord bot: configure and verify from the panel\n\n' "$G" "$R" "${ip:-YOUR-SERVER-IP}" "official.snck.fun"
 }
 update(){
  root
- installed || { echo "Install the panel first."; return; }
- info "Updating canonical Snck panel, KVM, Discord bridge and bot setup..."
- download_files
+ info "Starting Snck update..."
+ mkdir -p "$APP_DIR"
+ if [[ ! -d "$APP_DIR/venv" ]]; then
+   info "Creating Python environment..."
+   python3 -m venv "$APP_DIR/venv" || { fail "Could not create Python environment"; return 1; }
+ fi
+ info "Downloading latest panel, KVM and Discord files..."
+ download_files || return 1
  cd "$APP_DIR"
- [[ -d venv ]] || python3 -m venv venv
- "$APP_DIR/venv/bin/pip" install -r requirements.txt || fail "Dependency update failed"
- apply_panel_patch
- "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py bot.py launcher.py snck_panel_bridge.py patch_panel_bot_setup.py || fail "Python syntax check failed"
+ "$APP_DIR/venv/bin/pip" install -r requirements.txt || { fail "Dependency update failed"; return 1; }
+ apply_panel_patch || return 1
+ "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py bot.py launcher.py snck_panel_bridge.py patch_panel_bot_setup.py || { fail "Python syntax check failed"; return 1; }
+ [[ -f "$APP_DIR/.env" ]] || write_env
  systemctl daemon-reload
- systemctl restart "$PANEL_SERVICE"
- if grep -q '^DISCORD_TOKEN=' "$APP_DIR/.env" 2>/dev/null; then systemctl restart "$BOT_SERVICE"; fi
- ok "Updated successfully."
+ systemctl enable "$PANEL_SERVICE" >/dev/null 2>&1 || true
+ systemctl restart "$PANEL_SERVICE" || { journalctl -u "$PANEL_SERVICE" -n 60 --no-pager; fail "Panel restart failed"; return 1; }
+ if grep -q '^DISCORD_TOKEN=' "$APP_DIR/.env" 2>/dev/null; then
+   systemctl enable "$BOT_SERVICE" >/dev/null 2>&1 || true
+   systemctl restart "$BOT_SERVICE" || true
+ fi
+ sleep 2
+ ok "Snck update completed successfully."
+ printf '  Panel: %s\n' "$(state "$PANEL_SERVICE")"
+ printf '  Bot  : %s\n' "$(state "$BOT_SERVICE")"
+ printf '  Version: %s\n\n' "$VERSION"
 }
 check(){
  root
