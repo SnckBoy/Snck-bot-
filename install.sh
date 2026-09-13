@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 REPO=https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main
-APP=${SNCK_APP_DIR:-/opt/snck-bot}; PS=snck-kvm-panel; BS=snck-discord-bot; V=8.2.7
+APP=${SNCK_APP_DIR:-/opt/snck-bot}; PS=snck-kvm-panel; BS=snck-discord-bot; V=8.2.8
 C=$'\033[38;5;51m';P=$'\033[38;5;141m';G=$'\033[38;5;82m';Y=$'\033[38;5;220m';R=$'\033[0m'
 [ -r /dev/tty ] || { echo 'Interactive terminal required.'; exit 1; }
 exec 3<>/dev/tty
@@ -128,14 +128,11 @@ check(){
 restart(){ root; systemctl restart "$PS" 2>/dev/null || :; systemctl restart "$BS" 2>/dev/null || :; echo 'Services restarted.'; }
 uninstall(){
   root
-  printf '\nSNCK PANEL + BOT UNINSTALL\nType UNINSTALL or y to continue: '
-  local x=''
-  read -r x <&3 || x=''
-  if [[ "$x" != UNINSTALL && ! "$x" =~ ^[Yy]([Ee][Ss])?$ ]]; then echo 'Cancelled.'; sleep 1; return; fi
-  echo 'Stopping Snck services...'
+  echo
+  echo 'SNCK PANEL + BOT UNINSTALL'
+  echo 'Removing Snck Panel + Bot...'
   systemctl stop "$PS" "$BS" 2>/dev/null || :
   systemctl disable "$PS" "$BS" 2>/dev/null || :
-  echo 'Removing service files...'
   rm -f "/etc/systemd/system/$PS.service" "/etc/systemd/system/$BS.service" "/etc/systemd/system/multi-user.target.wants/$PS.service" "/etc/systemd/system/multi-user.target.wants/$BS.service"
   systemctl daemon-reload
   systemctl reset-failed "$PS" "$BS" 2>/dev/null || :
