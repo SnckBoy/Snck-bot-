@@ -10,7 +10,7 @@ import re
 ROOT = Path(__file__).resolve().parent
 TARGET = ROOT / "snck_panel.py"
 
-NEW_ROUTE = r"""@app.route('/bot',methods=['GET','POST'])
+NEW_ROUTE = r'''@app.route('/bot',methods=['GET','POST'])
 @admin_required
 def bot():
     'Configure, verify and start the Discord bot from the panel.'
@@ -113,9 +113,9 @@ def bot():
     body = f'''<div class="hero"><div class="title">Discord Bot</div><p class="muted">Connect, verify and start your Snck Discord VPS bot.</p></div>
 <div class="grid"><div class="card stat"><div class="muted">Connection</div><div class="value {status_class}">{bot_status}</div></div><div class="card stat"><div class="muted">Application ID</div><div class="value">{html.escape(client_id or 'Not set')}</div></div></div>
 <div class="card"><form method="post"><label>Bot Token</label><input type="password" name="token" autocomplete="new-password" placeholder="Paste your Discord bot token" required><label>Client / Application ID (optional)</label><input name="client_id" inputmode="numeric" value="{html.escape(client_id)}" placeholder="Auto-detected from token"><label>Guild / Server ID (optional)</label><input name="guild_id" inputmode="numeric" value="{html.escape(guild_id)}" placeholder="Your Discord server ID"><label>Public Key (optional)</label><input type="password" name="public_key" autocomplete="off" placeholder="Only needed for interaction webhooks"><div class="actions"><button>Verify and Start Bot</button></div></form><p class="muted small">The token is validated directly with Discord, stored only in the VPS .env file with restricted permissions, and never displayed back in the panel.</p>{invite_html}</div>'''
-    return render_template_string(LAY, title='Discord Bot', body=body)
+    return render_template_string(LAYOUT, title='Discord Bot', body=body)
 
-"""
+'''
 
 
 def patch():
