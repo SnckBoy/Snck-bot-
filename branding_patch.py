@@ -11,7 +11,10 @@ REPLACEMENTS = {
     "Hopingboyz": "Snck",
     "Hoping Boy": "Snck",
     "Hopingboy": "Snck",
+    "HOPINGBOY": "SNCK",
+    "HOPING BOYZ": "SNCK",
 }
+
 
 def patch(path: Path) -> bool:
     if not path.exists():
@@ -22,22 +25,27 @@ def patch(path: Path) -> bool:
         text = text.replace(old, new)
     if path.name == "bot.py":
         text = text.replace("https://i.imgur.com/Tv3clt0.jpeg", ICON)
+        text = text.replace("BOT_DEVELOPER = os.getenv('BOT_DEVELOPER', 'PapiaGamerz')", "BOT_DEVELOPER = os.getenv('BOT_DEVELOPER', 'Clark')")
+        text = text.replace("BOT_NAME = os.getenv('BOT_NAME', 'PapiaGamerz VMS')", "BOT_NAME = os.getenv('BOT_NAME', 'Snck Discord VPS Deploy Bot')")
+        text = text.replace("BOT_ICON_URL = os.getenv('BOT_ICON_URL', 'https://i.imgur.com/Tv3clt0.jpeg')", "BOT_ICON_URL = os.getenv('BOT_ICON_URL', ICON)")
+        text = text.replace("BOT_THUMBNAIL_URL = os.getenv('BOT_THUMBNAIL_URL', 'https://i.imgur.com/Tv3clt0.jpeg')", "BOT_THUMBNAIL_URL = os.getenv('BOT_THUMBNAIL_URL', ICON)")
     if text != original:
         path.write_text(text, encoding="utf-8")
         return True
     return False
 
+
 def main() -> None:
     changed = sum(patch(path) for path in FILES)
     env = ROOT / ".env"
+    values = {
+        "BOT_NAME": "Snck Discord VPS Deploy Bot",
+        "BOT_DEVELOPER": "Clark",
+        "BOT_ICON_URL": ICON,
+        "BOT_THUMBNAIL_URL": ICON,
+    }
     if env.exists():
         lines = env.read_text(encoding="utf-8").splitlines()
-        values = {
-            "BOT_NAME": "Snck Discord VPS Deploy Bot",
-            "BOT_DEVELOPER": "Clark",
-            "BOT_ICON_URL": ICON,
-            "BOT_THUMBNAIL_URL": ICON,
-        }
         found = set()
         out = []
         for line in lines:
@@ -52,6 +60,7 @@ def main() -> None:
                 out.append(f"{key}={value}")
         env.write_text("\n".join(out) + "\n", encoding="utf-8")
     print(f"Snck branding applied ({changed} source files changed).")
+
 
 if __name__ == "__main__":
     main()
