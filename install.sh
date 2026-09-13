@@ -4,18 +4,16 @@ REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
 APP_DIR="${SNCK_APP_DIR:-/opt/snck-bot}"
 PANEL_SERVICE="snck-kvm-panel"
 BOT_SERVICE="snck-discord-bot"
-VERSION="8.1.0"
+VERSION="8.1.1"
 E=$'\033'; R="${E}[0m"; B="${E}[1m"; C="${E}[38;5;51m"; P="${E}[38;5;141m"; G="${E}[38;5;82m"; Y="${E}[38;5;220m"; M="${E}[38;5;201m"; W="${E}[38;5;255m"
 [[ -r /dev/tty ]] || { echo "Interactive terminal required."; exit 1; }
 exec 3<>/dev/tty
-
 ok(){ printf '%b[ OK ]%b %s\n' "$G" "$R" "$*"; }
 info(){ printf '%b[INFO]%b %s\n' "$C" "$R" "$*"; }
 fail(){ printf '%b[FAIL]%b %s\n' "$M" "$R" "$*" >&2; exit 1; }
 state(){ systemctl is-active --quiet "$1" 2>/dev/null && echo ONLINE || systemctl is-enabled --quiet "$1" 2>/dev/null && echo OFFLINE || echo NOT-INSTALLED; }
 kvm(){ [[ -e /dev/kvm ]] && echo ENABLED || echo UNAVAILABLE; }
 installed(){ [[ -f "$APP_DIR/snck_panel.py" && -f "$APP_DIR/kvm.py" && -f "$APP_DIR/patch_panel_bot_setup.py" ]]; }
-
 menu(){
  clear 2>/dev/null || true
  printf '\n%b╭──────────────────────────────────────────────────────╮%b\n' "$P" "$R"
@@ -38,9 +36,7 @@ menu(){
  IFS= read -r choice <&3 || true
  case "$choice" in 1) install;; 2) update;; 3) check;; 4) restart;; 5) uninstall;; 0) exit 0;; *) echo "Invalid option."; sleep 1;; esac
 }
-
 root(){ [[ $(id -u) -eq 0 ]] || exec sudo -E bash "$0" "$@"; }
-
 write_env(){
  mkdir -p "$APP_DIR"
  local secret existing_token
@@ -56,16 +52,16 @@ EOF
  [[ -n "$existing_token" ]] && printf 'DISCORD_TOKEN=%s\n' "$existing_token" >> "$APP_DIR/.env"
  chmod 600 "$APP_DIR/.env"
 }
-
 download_files(){
  local f
  for f in snck_panel_v2.py kvm.py bot.py launcher.py snck_panel_bridge.py requirements.txt patch_panel_bot_setup.py; do
    curl -fsSL --retry 3 "$REPO_RAW/$f" -o "$APP_DIR/$f" || fail "Download failed: $f"
  done
  cp "$APP_DIR/snck_panel_v2.py" "$APP_DIR/snck_panel.py"
- "$APP_DIR/venv/bin/python" "$APP_DIR/patch_panel_bot_setup.py"
 }
-
+apply_panel_patch(){
+ "$APP_DIR/venv/bin/python" "$APP_DIR/patch_panel_bot_setup.py" || fail "Panel bot setup patch failed"
+}
 install(){
  root
  info "Installing Ubuntu/Debian dependencies..."
@@ -79,7 +75,8 @@ install(){
  [[ -d venv ]] || python3 -m venv venv
  "$APP_DIR/venv/bin/pip" install --upgrade pip >/dev/null || fail "pip upgrade failed"
  "$APP_DIR/venv/bin/pip" install -r requirements.txt || fail "Python dependencies failed"
- "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py bot.py launcher.py snck_panel_bridge.py || fail "Python syntax check failed"
+ apply_panel_patch
+ "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py bot.py launcher.py snck_panel_bridge.py patch_panel_bot_setup.py || fail "Python syntax check failed"
  write_env
  cat > "/etc/systemd/system/$PANEL_SERVICE.service" <<EOF
 [Unit]
@@ -120,21 +117,21 @@ EOF
  local ip; ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
  printf '\n%bINSTALL COMPLETE%b\nPanel: http://%s:5000\nLicense: %s\nAdmin: create on first login\nDiscord bot: configure and verify from the panel\n\n' "$G" "$R" "${ip:-YOUR-SERVER-IP}" "official.snck.fun"
 }
-
 update(){
  root
  installed || { echo "Install the panel first."; return; }
  info "Updating canonical Snck panel, KVM, Discord bridge and bot setup..."
  download_files
  cd "$APP_DIR"
+ [[ -d venv ]] || python3 -m venv venv
  "$APP_DIR/venv/bin/pip" install -r requirements.txt || fail "Dependency update failed"
+ apply_panel_patch
  "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py bot.py launcher.py snck_panel_bridge.py patch_panel_bot_setup.py || fail "Python syntax check failed"
  systemctl daemon-reload
  systemctl restart "$PANEL_SERVICE"
  if grep -q '^DISCORD_TOKEN=' "$APP_DIR/.env" 2>/dev/null; then systemctl restart "$BOT_SERVICE"; fi
  ok "Updated successfully."
 }
-
 check(){
  root
  echo "Panel: $(state "$PANEL_SERVICE")"
@@ -143,9 +140,7 @@ check(){
  if command -v virsh >/dev/null 2>&1; then echo "Libvirt domains:"; virsh list --all || true; fi
  printf '\nPress Enter... '; IFS= read -r _ <&3 || true
 }
-
 restart(){ root; systemctl restart "$PANEL_SERVICE"; systemctl restart "$BOT_SERVICE" 2>/dev/null || true; ok "Services restarted."; }
-
 uninstall(){
  root
  printf 'Remove Snck panel files and local database? [y/N]: '
@@ -157,5 +152,4 @@ uninstall(){
  rm -rf "$APP_DIR"
  ok "Snck panel removed. Existing libvirt VMs are not automatically deleted."
 }
-
 while true; do menu; done
