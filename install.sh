@@ -4,7 +4,7 @@ REPO_RAW="https://raw.githubusercontent.com/SnckBoy/Snck-bot-/main"
 APP_DIR="${SNCK_APP_DIR:-/opt/snck-bot}"
 PANEL_SERVICE="snck-kvm-panel"
 BOT_SERVICE="snck-discord-bot"
-VERSION="8.0.0"
+VERSION="8.1.0"
 E=$'\033'; R="${E}[0m"; B="${E}[1m"; C="${E}[38;5;51m"; P="${E}[38;5;141m"; G="${E}[38;5;82m"; Y="${E}[38;5;220m"; M="${E}[38;5;201m"; W="${E}[38;5;255m"
 [[ -r /dev/tty ]] || { echo "Interactive terminal required."; exit 1; }
 exec 3<>/dev/tty
@@ -14,7 +14,7 @@ info(){ printf '%b[INFO]%b %s\n' "$C" "$R" "$*"; }
 fail(){ printf '%b[FAIL]%b %s\n' "$M" "$R" "$*" >&2; exit 1; }
 state(){ systemctl is-active --quiet "$1" 2>/dev/null && echo ONLINE || systemctl is-enabled --quiet "$1" 2>/dev/null && echo OFFLINE || echo NOT-INSTALLED; }
 kvm(){ [[ -e /dev/kvm ]] && echo ENABLED || echo UNAVAILABLE; }
-installed(){ [[ -f "$APP_DIR/snck_panel.py" && -f "$APP_DIR/kvm.py" ]]; }
+installed(){ [[ -f "$APP_DIR/snck_panel.py" && -f "$APP_DIR/kvm.py" && -f "$APP_DIR/patch_panel_bot_setup.py" ]]; }
 
 menu(){
  clear 2>/dev/null || true
@@ -59,11 +59,11 @@ EOF
 
 download_files(){
  local f
- for f in snck_panel_v2.py kvm.py bot.py launcher.py snck_panel_bridge.py requirements.txt; do
+ for f in snck_panel_v2.py kvm.py bot.py launcher.py snck_panel_bridge.py requirements.txt patch_panel_bot_setup.py; do
    curl -fsSL --retry 3 "$REPO_RAW/$f" -o "$APP_DIR/$f" || fail "Download failed: $f"
  done
- # The v2 panel is the canonical production panel; keep the filename expected by services.
  cp "$APP_DIR/snck_panel_v2.py" "$APP_DIR/snck_panel.py"
+ "$APP_DIR/venv/bin/python" "$APP_DIR/patch_panel_bot_setup.py"
 }
 
 install(){
@@ -118,17 +118,17 @@ EOF
  if ! systemctl is-active --quiet "$PANEL_SERVICE"; then journalctl -u "$PANEL_SERVICE" -n 80 --no-pager; fail "Panel failed to start"; fi
  ok "Snck KVM Panel is ONLINE"
  local ip; ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
- printf '\n%bINSTALL COMPLETE%b\nPanel: http://%s:5000\nLicense: %s\nAdmin: create on first login\nDiscord bot: configure token from the panel\n\n' "$G" "$R" "${ip:-YOUR-SERVER-IP}" "official.snck.fun"
+ printf '\n%bINSTALL COMPLETE%b\nPanel: http://%s:5000\nLicense: %s\nAdmin: create on first login\nDiscord bot: configure and verify from the panel\n\n' "$G" "$R" "${ip:-YOUR-SERVER-IP}" "official.snck.fun"
 }
 
 update(){
  root
  installed || { echo "Install the panel first."; return; }
- info "Updating canonical Snck panel, KVM and Discord bridge..."
+ info "Updating canonical Snck panel, KVM, Discord bridge and bot setup..."
  download_files
  cd "$APP_DIR"
  "$APP_DIR/venv/bin/pip" install -r requirements.txt || fail "Dependency update failed"
- "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py bot.py launcher.py snck_panel_bridge.py || fail "Python syntax check failed"
+ "$APP_DIR/venv/bin/python" -m py_compile snck_panel.py kvm.py bot.py launcher.py snck_panel_bridge.py patch_panel_bot_setup.py || fail "Python syntax check failed"
  systemctl daemon-reload
  systemctl restart "$PANEL_SERVICE"
  if grep -q '^DISCORD_TOKEN=' "$APP_DIR/.env" 2>/dev/null; then systemctl restart "$BOT_SERVICE"; fi
