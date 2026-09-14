@@ -1,17 +1,29 @@
-name: Snck installer check
+name: Snck deep validation
 
 on:
   push:
-    paths:
-      - 'install.sh'
   pull_request:
-    paths:
-      - 'install.sh'
 
 jobs:
-  shellcheck:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate shell syntax
+      - name: Validate installer syntax
         run: bash -n install.sh
+      - name: Validate Python syntax
+        run: |
+          python3 -m py_compile \
+            bot.py launcher.py kvm.py kvm_discord_bridge.py \
+            panel.py panel_bridge.py snck_panel.py snck_panel_v2.py \
+            snck_panel_bridge.py user_portal.py \
+            patch_panel_bot_setup.py patch_kvm_runtime.py branding_patch.py
+      - name: Validate Python imports
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          for p in Path('.').glob('*.py'):
+              ast.parse(p.read_text(encoding='utf-8'), filename=str(p))
+          print('All Python files parse successfully.')
+          PY
