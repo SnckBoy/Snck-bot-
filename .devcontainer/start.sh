@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
+
 mkdir -p .codespace
 
 if [ -f .env ]; then
@@ -20,26 +21,39 @@ if [ ! -x .venv/bin/python ]; then
   .venv/bin/pip install -r requirements.txt
 fi
 
-# Stop only the previous panel process; the bracket prevents pkill from matching itself.
-pkill -f '[s]nck_panel.py' 2>/dev/null || true
+# Stop only a previously recorded panel process. Never kill unrelated Python processes.
+if [ -f .codespace/panel.pid ]; then
+  old_pid="$(cat .codespace/panel.pid 2>/dev/null || true)"
+  if [[ "$old_pid" =~ ^[0-9]+$ ]] && kill -0 "$old_pid" 2>/dev/null; then
+    kill "$old_pid" 2>/dev/null || true
+    for _ in $(seq 1 20); do
+      kill -0 "$old_pid" 2>/dev/null || break
+      sleep 0.25
+    done
+  fi
+  rm -f .codespace/panel.pid
+fi
+
+: > .codespace/panel.log
 nohup .venv/bin/python snck_panel.py >.codespace/panel.log 2>&1 &
 PANEL_PID=$!
+echo "$PANEL_PID" > .codespace/panel.pid
 
-for _ in $(seq 1 20); do
+ready=0
+for _ in $(seq 1 30); do
+  if ! kill -0 "$PANEL_PID" 2>/dev/null; then
+    break
+  fi
   if curl -fsS --max-time 2 "http://127.0.0.1:${SNCK_PANEL_PORT}/health" >/dev/null 2>&1; then
+    ready=1
     break
   fi
   sleep 1
 done
 
-if ! kill -0 "$PANEL_PID" 2>/dev/null; then
-  cat .codespace/panel.log
-  exit 1
-fi
-
-if ! curl -fsS --max-time 3 "http://127.0.0.1:${SNCK_PANEL_PORT}/health" >/dev/null 2>&1; then
-  echo 'Snck panel process exists but /health is not responding.'
-  cat .codespace/panel.log
+if [ "$ready" -ne 1 ]; then
+  echo 'Snck panel failed to start.' >&2
+  cat .codespace/panel.log >&2 || true
   exit 1
 fi
 
@@ -47,8 +61,14 @@ echo "Snck KVM Panel: http://127.0.0.1:${SNCK_PANEL_PORT}"
 echo "Codespaces: port ${SNCK_PANEL_PORT} is configured for automatic HTTP forwarding."
 
 if [ -n "${DISCORD_TOKEN:-}" ]; then
-  pkill -f '[l]auncher.py' 2>/dev/null || true
+  if [ -f .codespace/bot.pid ]; then
+    old_bot="$(cat .codespace/bot.pid 2>/dev/null || true)"
+    if [[ "$old_bot" =~ ^[0-9]+$ ]] && kill -0 "$old_bot" 2>/dev/null; then kill "$old_bot" 2>/dev/null || true; fi
+    rm -f .codespace/bot.pid
+  fi
+  : > .codespace/bot.log
   nohup .venv/bin/python launcher.py >.codespace/bot.log 2>&1 &
+  echo $! > .codespace/bot.pid
   echo 'Snck Discord Bot: STARTING'
 else
   echo 'Snck Discord Bot: DISCORD_TOKEN is not configured'
