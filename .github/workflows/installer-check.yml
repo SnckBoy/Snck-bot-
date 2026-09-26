@@ -15,10 +15,55 @@ jobs:
         run: |
           python3 -m py_compile \
             bot.py launcher.py kvm.py kvm_discord_bridge.py \
-            panel.py panel_bridge.py snck_panel.py snck_panel_v2.py \
+            panel.py panel_bridge.py snck_panel.py snck_panel_v2.py snck_panel_fixed.py \
             snck_panel_bridge.py user_portal.py \
             patch_panel_bot_setup.py patch_kvm_runtime.py branding_patch.py
-      - name: Validate Python imports
+      - name: Install runtime dependencies
+        run: python3 -m pip install -r requirements.txt
+      - name: Test panel end-to-end in Codespace mode
+        env:
+          SNCK_CODESPACE: "1"
+          SNCK_PANEL_SECRET: "ci-test-secret"
+          SNCK_LICENSE_KEY: "ci-license"
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from snck_panel_fixed import app, DB, init_db
+
+          app.config.update(TESTING=True)
+          init_db()
+          client = app.test_client()
+
+          r = client.get("/")
+          assert r.status_code == 302 and "/license" in r.location, r.status_code
+          r = client.post("/license", data={"license":"ci-license"})
+          assert r.status_code == 302 and "/setup" in r.location, r.status_code
+          r = client.post("/setup", data={"username":"admin","password":"TestPassword123!"})
+          assert r.status_code == 302 and "/login" in r.location, r.status_code
+          r = client.post("/login", data={"username":"admin","password":"TestPassword123!"})
+          assert r.status_code == 302 and r.location.endswith("/"), r.status_code
+          r = client.get("/health")
+          assert r.status_code == 200 and r.json["status"] == "ok"
+
+          with client.session_transaction() as s:
+              csrf = s["_csrf"]
+          r = client.post("/vps/create", data={"_csrf":csrf,"name":"ci-test-vps","ram":"1024","cpu":"1","disk":"10","password":"TemporaryPassword123!"})
+          assert r.status_code == 302, r.status_code
+          r = client.get("/vps")
+          assert r.status_code == 200 and b"ci-test-vps" in r.data
+
+          for endpoint in ("/vps/1/stop", "/vps/1/start", "/vps/1/reboot", "/vps/1/delete"):
+              with client.session_transaction() as s:
+                  csrf = s["_csrf"]
+              r = client.post(endpoint, data={"_csrf":csrf})
+              assert r.status_code == 302, (endpoint, r.status_code)
+
+          r = client.get("/vps")
+          assert r.status_code == 200 and b"ci-test-vps" not in r.data
+          print("Snck panel Codespace-mode end-to-end test: PASS")
+          Path("snck_panel.db").unlink(missing_ok=True)
+          PY
+      - name: Validate all Python files parse
         run: |
           python3 - <<'PY'
           import ast
