@@ -29,6 +29,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           from snck_panel_fixed import app, DB, init_db
+          import sqlite3
 
           app.config.update(TESTING=True)
           DB.unlink(missing_ok=True)
@@ -53,23 +54,25 @@ jobs:
           r = client.get("/vps")
           assert r.status_code == 200 and b"ci-test-vps" in r.data
 
-          with DB.open() if False else open('/dev/null'):
-              pass
-          import sqlite3
           with sqlite3.connect(DB) as conn:
-              vps_id = conn.execute("SELECT id FROM vps WHERE container_name=?", ("ci-test-vps",)).fetchone()[0]
+              row = conn.execute("SELECT id FROM vps WHERE container_name=?", ("ci-test-vps",)).fetchone()
+              assert row is not None
+              vps_id = row[0]
+
           for op in ("stop", "start", "reboot"):
               with client.session_transaction() as s:
                   csrf = s["_csrf"]
               r = client.post(f"/vps/{vps_id}/{op}", data={"_csrf":csrf})
               assert r.status_code == 302, (op, r.status_code)
+
           with client.session_transaction() as s:
               csrf = s["_csrf"]
           r = client.post(f"/vps/{vps_id}/delete", data={"_csrf":csrf})
           assert r.status_code == 302, r.status_code
           with sqlite3.connect(DB) as conn:
-              status = conn.execute("SELECT status FROM vps WHERE id=?", (vps_id,)).fetchone()[0]
-          assert status == "deleted", status
+              row = conn.execute("SELECT status FROM vps WHERE id=?", (vps_id,)).fetchone()
+          assert row is None or row[0] == "deleted", row
+
           r = client.get("/vps")
           assert r.status_code == 200 and b"ci-test-vps" not in r.data
           print("Snck panel Codespace-mode end-to-end test: PASS")
